@@ -15,7 +15,10 @@
   <!-- Konfeti Efekti -->
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
 
-  <!-- Firebase (Sohbet) -->
+  <!-- HTML2Canvas (Görsel Oluşturucu) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- Firebase (Sohbet & Loglama) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
@@ -79,7 +82,6 @@
       animation: crownFloat 2.5s ease-in-out infinite;
     }
 
-    /* Arama Vurgusu (Highlight) */
     @keyframes highlightPulse {
       0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7); }
       50% { box-shadow: 0 0 0 6px rgba(234, 179, 8, 0.4); }
@@ -114,13 +116,12 @@
         </div>
       </div>
 
-      <!-- OYUNCU ARAMA ÇUBUĞU -->
+      <!-- Oyuncu Arama Çubuğu -->
       <div class="relative flex-1 max-w-xs w-full order-3 sm:order-2">
         <div class="relative">
           <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
           <input type="text" id="playerSearchInput" oninput="handlePlayerSearch(this.value)" placeholder="Oyuncu ara..." class="w-full bg-slate-100 hover:bg-slate-200/70 focus:bg-white border border-slate-200 rounded-full pl-8 pr-3 py-1.5 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-iyte transition">
         </div>
-        <!-- Arama Sonuç Dropdown'ı -->
         <div id="searchResultsDropdown" class="hidden absolute left-0 right-0 top-10 bg-white border border-slate-200 rounded-2xl shadow-xl max-h-64 overflow-y-auto p-1.5 z-50 space-y-1 text-xs"></div>
       </div>
 
@@ -174,7 +175,7 @@
       <div class="absolute -bottom-10 -right-10 w-48 h-48 bg-white/10 rounded-full blur-3xl pointer-events-none"></div>
     </div>
 
-    <!-- TURNUVANIN MAÇI BARİ (Sade) -->
+    <!-- Turnuvanın Maçı Barı -->
     <div id="matchOfTheTournamentBar" class="mt-3 hidden">
       <div class="bg-gradient-to-r from-amber-500/15 via-rose-500/10 to-amber-500/15 border border-amber-500/30 rounded-2xl p-3 sm:px-4 sm:py-2.5 flex items-center justify-between gap-3 shadow-xs">
         <div class="flex items-center gap-2.5 min-w-0">
@@ -253,7 +254,6 @@
 
     <!-- SEKME 4: AĞAÇ & BO3 FİNAL -->
     <section id="view-finalsTree" class="hidden space-y-6">
-      
       <div class="bg-white rounded-3xl p-5 border border-slate-200 shadow-sm esport-card">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 mb-4 border-b border-slate-100">
           <div>
@@ -335,7 +335,6 @@
           </div>
         </div>
       </div>
-
     </section>
 
     <!-- SEKME 5: GOL KRALLIĞI -->
@@ -412,7 +411,7 @@
     </div>
   </div>
 
-  <!-- H2H / TALE OF THE TAPE MODAL -->
+  <!-- H2H MODAL -->
   <div id="h2hModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full p-5 border border-slate-200 shadow-2xl relative">
       <div class="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -427,6 +426,56 @@
       </div>
 
       <div class="mt-4 grid grid-cols-2 gap-3" id="h2hCardsContainer"></div>
+    </div>
+  </div>
+
+  <!-- GRUP PAYLAŞIM & ÖNİZLEME MODALI -->
+  <div id="groupShareModal" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-lg w-full p-5 border border-slate-200 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+        <div class="flex items-center gap-2">
+          <span class="text-lg">📢</span>
+          <div>
+            <h4 class="font-black text-sm text-slate-900" id="shareModalTitle">Grup Puan Durumu Paylaş</h4>
+            <p class="text-[10px] text-slate-400">Görsel Önizlemesi & Sosyal Medya Paylaşımı</p>
+          </div>
+        </div>
+        <button onclick="closeShareModal()" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-500 font-bold transition">✕</button>
+      </div>
+
+      <!-- PNG Önizleme Alanı -->
+      <div class="my-4 flex flex-col items-center">
+        <div id="shareImageContainer" class="w-full flex justify-center bg-slate-100 p-2 rounded-2xl border border-slate-200 overflow-hidden shadow-inner">
+          <span class="text-xs text-slate-400 py-8">Görsel hazırlanıyor...</span>
+        </div>
+        <span class="text-[10px] text-slate-400 mt-2 font-medium">Görsel doğrudan kaydedilip hikayelere atılmaya uygundur.</span>
+      </div>
+
+      <!-- Paylaşım Butonları -->
+      <div class="space-y-2 pt-2 border-t border-slate-100">
+        <div class="text-[11px] font-bold text-slate-500 mb-1">Paylaş veya İndir:</div>
+        <div class="grid grid-cols-3 gap-2">
+          <button onclick="shareToWhatsApp()" class="flex flex-col items-center justify-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white py-2.5 px-2 rounded-2xl font-extrabold text-xs transition active:scale-95 shadow-sm">
+            <i class="fa-brands fa-whatsapp text-lg"></i>
+            <span class="text-[10px]">WhatsApp</span>
+          </button>
+
+          <button onclick="shareToX()" class="flex flex-col items-center justify-center gap-1 bg-black hover:bg-slate-800 text-white py-2.5 px-2 rounded-2xl font-extrabold text-xs transition active:scale-95 shadow-sm">
+            <i class="fa-brands fa-x-twitter text-lg"></i>
+            <span class="text-[10px]">X (Twitter)</span>
+          </button>
+
+          <button onclick="shareToInstagramOrNative()" class="flex flex-col items-center justify-center gap-1 bg-gradient-to-tr from-amber-500 via-rose-500 to-purple-600 hover:opacity-95 text-white py-2.5 px-2 rounded-2xl font-extrabold text-xs transition active:scale-95 shadow-sm">
+            <i class="fa-brands fa-instagram text-lg"></i>
+            <span class="text-[10px]">Instagram</span>
+          </button>
+        </div>
+
+        <button onclick="downloadShareImage()" class="w-full mt-2 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-xs font-bold transition">
+          <i class="fa-solid fa-download text-slate-500"></i>
+          <span>Görseli Telefona / PC'ye İndir</span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -456,7 +505,7 @@
 
   <script>
     // ----------------------------------------------------
-    // SOHBET İÇİN FIREBASE BAĞLANTISI
+    // SOHBET & GÜVENLİK LOGLARI İÇİN FIREBASE
     // ----------------------------------------------------
     const firebaseConfig = {
       apiKey: "AIzaSyDwVLSgnHf2JumSsh1ABjye3vQJz7GdysA",
@@ -470,9 +519,11 @@
     };
 
     let chatRef = null;
+    let auditLogRef = null;
     try {
       firebase.initializeApp(firebaseConfig);
       chatRef = firebase.database().ref("tournament_chat");
+      auditLogRef = firebase.database().ref("user_audit_logs");
     } catch(e) {
       console.warn("Firebase bağlantı hatası:", e);
     }
@@ -483,6 +534,10 @@
     let currentUserName = localStorage.getItem('iyte_chat_username') || '';
     let chatMessages = [];
     let previousChampion = null;
+
+    let activeShareGroup = null;
+    let activeShareDataUrl = null;
+    let activeShareBlob = null;
 
     // Şifre: 1912
     function toggleAdminPrompt() {
@@ -517,6 +572,7 @@
       }
       renderAll();
       renderChatUI();
+      renderChatMessages(); // Admin açıldığında silme butonlarını çiz
     }
 
     function triggerChampionConfetti() {
@@ -669,9 +725,6 @@
       return stats;
     }
 
-    // ----------------------------------------------------
-    // DİNAMİK TURNUVANIN MAÇI HESAPLAYICI (Sade)
-    // ----------------------------------------------------
     function calculateMatchOfTheTournament() {
       let bestMatch = null;
       let highestDramaScore = -999;
@@ -723,7 +776,106 @@
     }
 
     // ----------------------------------------------------
-    // H2H / TALE OF THE TAPE MODAL
+    // DÜZELTİLMİŞ GRUP PAYLAŞIM & PNG ÜRETİM MOTORU
+    // ----------------------------------------------------
+    window.openShareGroupModal = function(letter) {
+      activeShareGroup = letter;
+      const modal = document.getElementById('groupShareModal');
+      document.getElementById('shareModalTitle').innerText = `Grup ${letter} • Puan Tablosu Paylaş`;
+      
+      const container = document.getElementById('shareImageContainer');
+      container.innerHTML = `<div class="py-10 flex flex-col items-center gap-2"><div class="w-6 h-6 border-2 border-iyte border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-500 font-bold">Görsel hazırlanıyor...</span></div>`;
+      modal.classList.remove('hidden');
+
+      const targetCard = document.getElementById(`group-card-${letter}`);
+      if (!targetCard) return;
+
+      setTimeout(() => {
+        html2canvas(targetCard, {
+          backgroundColor: '#ffffff',
+          scale: 2.5,
+          useCORS: true,
+          logging: false,
+          onclone: (clonedDoc) => {
+            const clonedCard = clonedDoc.getElementById(`group-card-${letter}`);
+            if (clonedCard) {
+              clonedCard.style.width = '420px';
+              clonedCard.style.padding = '20px';
+              
+              // İsimlerdeki taşma kesintilerini kaldır
+              clonedCard.querySelectorAll('.truncate').forEach(el => {
+                el.style.overflow = 'visible';
+                el.style.textOverflow = 'clip';
+                el.style.whiteSpace = 'normal';
+                el.style.wordBreak = 'break-word';
+              });
+
+              clonedCard.querySelectorAll('.w-5\\/12').forEach(el => {
+                el.style.width = '40%';
+              });
+              clonedCard.querySelectorAll('.w-2\\/12').forEach(el => {
+                el.style.width = '20%';
+              });
+            }
+          }
+        }).then(canvas => {
+          activeShareDataUrl = canvas.toDataURL('image/png');
+          canvas.toBlob(blob => { activeShareBlob = blob; });
+          container.innerHTML = `<img src="${activeShareDataUrl}" class="max-h-72 object-contain rounded-xl shadow-md border border-slate-200" alt="Grup ${letter}">`;
+        }).catch(err => {
+          console.error("Görsel oluşturma hatası:", err);
+          container.innerHTML = `<span class="text-xs text-rose-500 py-4">Görsel oluşturulamadı.</span>`;
+        });
+      }, 150);
+    };
+
+    window.closeShareModal = function() {
+      document.getElementById('groupShareModal').classList.add('hidden');
+    };
+
+    window.downloadShareImage = function() {
+      if (!activeShareDataUrl) return;
+      const link = document.createElement('a');
+      link.download = `IYTE-FC27-Grup-${activeShareGroup}.png`;
+      link.href = activeShareDataUrl;
+      link.click();
+    };
+
+    window.shareToWhatsApp = function() {
+      if (!activeShareGroup) return;
+      const standings = calculateStandings(activeShareGroup);
+      let text = `🏆 *İYTE FC 27 Dünya Kupası • Grup ${activeShareGroup} Puan Durumu*\n\n`;
+      standings.forEach((s, idx) => {
+        text += `${idx + 1}. ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
+      });
+      text += `\nCanlı takip: ${window.location.href}`;
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    };
+
+    window.shareToX = function() {
+      if (!activeShareGroup) return;
+      const standings = calculateStandings(activeShareGroup);
+      const leader = standings[0] ? standings[0].name : '';
+      const text = `İYTE FC 27 Turnuvası Grup ${activeShareGroup} sonuçları ve canlı puan durumu! Lider: ${leader} 🔥`;
+      window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
+    };
+
+    window.shareToInstagramOrNative = function() {
+      if (navigator.share && activeShareBlob) {
+        const file = new File([activeShareBlob], `Grup-${activeShareGroup}.png`, { type: 'image/png' });
+        navigator.share({
+          files: [file],
+          title: `İYTE FC 27 Turnuvası - Grup ${activeShareGroup}`,
+          text: `Grup ${activeShareGroup} puan durumu!`
+        }).catch(e => console.log("Paylaşım iptal edildi:", e));
+      } else {
+        downloadShareImage();
+        alert("Görsel cihazınıza indirildi! Instagram Story'ye girerek galerinizden doğrudan paylaşabilirsiniz.");
+      }
+    };
+
+    // ----------------------------------------------------
+    // H2H MODAL
     // ----------------------------------------------------
     window.openH2HModal = function(p1, p2, title) {
       const modal = document.getElementById('h2hModal');
@@ -798,7 +950,7 @@
     };
 
     // ----------------------------------------------------
-    // OYUNCU ARAMA MOTORU (Search & Highlight)
+    // OYUNCU ARAMA MOTORU
     // ----------------------------------------------------
     window.handlePlayerSearch = function(query) {
       const q = query.trim().toLowerCase();
@@ -812,7 +964,6 @@
 
       let matchesFound = [];
 
-      // 1. Gruplarda Ara
       GROUP_LETTERS.forEach(gKey => {
         const g = db.groups[gKey];
         g.players.forEach(p => {
@@ -829,7 +980,6 @@
         });
       });
 
-      // 2. Son 32'de Ara
       db.r32.forEach((m, idx) => {
         if (m.p1.toLowerCase().includes(q) || m.p2.toLowerCase().includes(q)) {
           const matchedName = m.p1.toLowerCase().includes(q) ? m.p1 : m.p2;
@@ -843,7 +993,6 @@
         }
       });
 
-      // 3. Ağaçta Ara (Son 16, ÇF, YF)
       ['r16', 'r8', 'r4'].forEach(roundKey => {
         db.tree[roundKey].forEach((m, idx) => {
           if (m.p1.toLowerCase().includes(q) || m.p2.toLowerCase().includes(q)) {
@@ -866,7 +1015,6 @@
         return;
       }
 
-      // Dropdown'ı doldur
       dropdown.innerHTML = matchesFound.map(item => `
         <div onclick="navigateToSearchResult('${item.tab}', '${item.filter || ''}', '${item.targetId}')" class="p-2 hover:bg-slate-50 rounded-xl cursor-pointer flex items-center justify-between border-b border-slate-100 last:border-0 transition">
           <div class="truncate">
@@ -902,7 +1050,6 @@
       }, 150);
     };
 
-    // Dışarı tıklandığında arama dropdown'ını kapat
     document.addEventListener('click', (e) => {
       const searchBox = document.getElementById('playerSearchInput');
       const dropdown = document.getElementById('searchResultsDropdown');
@@ -988,7 +1135,13 @@
                   </span>
                   <h4 class="font-extrabold text-sm text-slate-900">Grup ${letter}</h4>
                 </div>
-                <span class="text-[10px] font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-full">4 Oyuncu</span>
+                
+                <div class="flex items-center gap-1.5">
+                  <button data-html2canvas-ignore="true" onclick="openShareGroupModal('${letter}')" title="Puan Durumunu Paylaş" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-600 transition text-[11px] font-bold">
+                    <i class="fa-solid fa-share-nodes text-[10px]"></i>
+                    <span>Paylaş</span>
+                  </button>
+                </div>
               </div>
 
               <table class="w-full text-left text-xs mb-3">
@@ -1310,12 +1463,17 @@
     }
 
     // ----------------------------------------------------
-    // SOHBET (Firebase Dinleme)
+    // SOHBET & GÜVENLİK LOGU FONKSİYONLARI
     // ----------------------------------------------------
     if (chatRef) {
       chatRef.on("value", (snapshot) => {
         const data = snapshot.val();
-        chatMessages = data ? Object.values(data) : [];
+        chatMessages = [];
+        if (data) {
+          Object.keys(data).forEach(key => {
+            chatMessages.push({ id: key, ...data[key] });
+          });
+        }
         renderChatMessages();
       });
     }
@@ -1357,6 +1515,21 @@
       }
     }
 
+    // Yönetici İçin Mesaj Silme
+    window.deleteChatMessage = function(messageId) {
+      if (!isAdmin) {
+        alert("Sadece yönetici mesaj silebilir!");
+        return;
+      }
+      if (confirm("Bu mesajı kalıcı olarak silmek istediğinize emin misiniz?")) {
+        if (chatRef && messageId) {
+          chatRef.child(messageId).remove().catch(err => {
+            console.error("Mesaj silinemedi:", err);
+          });
+        }
+      }
+    };
+
     function renderChatMessages() {
       const container = document.getElementById('chatMessages');
       if (!container) return;
@@ -1368,24 +1541,36 @@
       }
 
       chatMessages.forEach(msg => {
+        const deleteBtnHTML = isAdmin ? `
+          <button onclick="deleteChatMessage('${msg.id}')" title="Mesajı Sil" class="text-rose-400 hover:text-rose-600 transition ml-2 p-0.5">
+            <i class="fa-solid fa-trash-can text-[11px]"></i>
+          </button>
+        ` : '';
+
         if (msg.isAdmin) {
           container.innerHTML += `
-            <div class="bg-iyte/10 border border-iyte/30 rounded-2xl p-2.5 shadow-xs transition-all">
+            <div class="bg-iyte/10 border border-iyte/30 rounded-2xl p-2.5 shadow-xs transition-all relative">
               <div class="flex items-center justify-between mb-1">
                 <span class="font-extrabold text-iyte flex items-center gap-1 text-[11px]">
                   <i class="fa-solid fa-crown text-amber-500 text-[9px]"></i> ${msg.sender}
                 </span>
-                <span class="text-[9px] text-slate-400 font-mono">${msg.time}</span>
+                <div class="flex items-center">
+                  <span class="text-[9px] text-slate-400 font-mono">${msg.time}</span>
+                  ${deleteBtnHTML}
+                </div>
               </div>
               <p class="text-slate-800 text-xs font-medium leading-relaxed">${msg.text}</p>
             </div>
           `;
         } else {
           container.innerHTML += `
-            <div class="bg-white border border-slate-200 rounded-2xl p-2.5 shadow-xs transition-all">
+            <div class="bg-white border border-slate-200 rounded-2xl p-2.5 shadow-xs transition-all relative">
               <div class="flex items-center justify-between mb-1">
                 <span class="font-bold text-slate-800 text-[11px]">${msg.sender}</span>
-                <span class="text-[9px] text-slate-400 font-mono">${msg.time}</span>
+                <div class="flex items-center">
+                  <span class="text-[9px] text-slate-400 font-mono">${msg.time}</span>
+                  ${deleteBtnHTML}
+                </div>
               </div>
               <p class="text-slate-700 text-xs leading-relaxed">${msg.text}</p>
             </div>
@@ -1396,7 +1581,7 @@
       container.scrollTop = container.scrollHeight;
     }
 
-    function handleSendChatMessage(e) {
+    async function handleSendChatMessage(e) {
       e.preventDefault();
       const input = document.getElementById('chatInput');
       const text = input.value.trim();
@@ -1412,20 +1597,48 @@
 
       const now = new Date();
       const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const senderName = isAdmin ? "Organizatör (Yönetici)" : currentUserName;
 
       const msgData = {
-        sender: isAdmin ? "Organizatör (Yönetici)" : currentUserName,
+        sender: senderName,
         text: text,
         isAdmin: isAdmin,
         time: timeStr,
         timestamp: Date.now()
       };
 
+      // Mesajı Canlı Sohbete Gönder
       if (chatRef) {
         chatRef.push(msgData);
-      } else {
-        chatMessages.push(msgData);
-        renderChatMessages();
+      }
+
+      // Güvenlik & Denetim Loglaması (IP, User-Agent, vb.)
+      try {
+        let userIp = "Bilinmiyor";
+        try {
+          const res = await fetch('https://api.ipify.org?format=json');
+          if (res.ok) {
+            const data = await res.json();
+            userIp = data.ip || "Bilinmiyor";
+          }
+        } catch (ipErr) {
+          console.warn("IP alınamadı:", ipErr);
+        }
+
+        if (auditLogRef) {
+          auditLogRef.push({
+            ip: userIp,
+            sender: senderName,
+            text: text,
+            isAdmin: isAdmin,
+            userAgent: navigator.userAgent || 'Bilinmiyor',
+            screenResolution: `${window.screen.width}x${window.screen.height}`,
+            timestamp: Date.now(),
+            date: now.toISOString()
+          });
+        }
+      } catch (logErr) {
+        console.warn("Audit log yazılamadı:", logErr);
       }
 
       input.value = '';
