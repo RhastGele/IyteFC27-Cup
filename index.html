@@ -9,7 +9,7 @@
   
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
   <!-- Konfeti Efekti -->
@@ -206,14 +206,21 @@
     <!-- SEKME 2: EN İYİ 3.'LER -->
     <section id="view-best3rd" class="hidden space-y-4">
       <div class="bg-white rounded-3xl p-5 border border-slate-200/80 shadow-sm esport-card">
-        <div class="flex items-center justify-between mb-3">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-slate-100">
           <div>
             <h3 class="text-base font-extrabold text-slate-900">En İyi 8 Üçüncü Tablosu</h3>
             <p class="text-xs text-slate-500 font-medium">12 grubun 3.'leri arasından ilk 8 sıradakiler Son 32'ye kalır.</p>
           </div>
-          <span class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-            Otomatik Sıralama
-          </span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+              Otomatik Sıralama
+            </span>
+            <!-- EN İYİ 3.'LERİ PAYLAŞ BUTONU -->
+            <button onclick="openShareBest3rdModal()" title="En İyi 3.'leri Paylaş" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-700 transition text-xs font-bold shadow-xs active:scale-95">
+              <i class="fa-solid fa-share-nodes text-[11px]"></i>
+              <span>Paylaş</span>
+            </button>
+          </div>
         </div>
 
         <div class="overflow-x-auto">
@@ -429,14 +436,14 @@
     </div>
   </div>
 
-  <!-- GRUP PAYLAŞIM & ÖNİZLEME MODALI -->
-  <div id="groupShareModal" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl max-w-lg w-full p-5 border border-slate-200 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+  <!-- GRUP / EN İYİ 3.'LER PAYLAŞIM & ÖNİZLEME MODALI -->
+  <div id="groupShareModal" class="hidden fixed inset-0 bg-slate-900/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-5 border border-slate-200 shadow-2xl relative max-h-[92vh] overflow-y-auto">
       <div class="flex items-center justify-between pb-3 border-b border-slate-100">
         <div class="flex items-center gap-2">
           <span class="text-lg">📢</span>
           <div>
-            <h4 class="font-black text-sm text-slate-900" id="shareModalTitle">Grup Puan Durumu Paylaş</h4>
+            <h4 class="font-black text-sm text-slate-900" id="shareModalTitle">Tablo Paylaş</h4>
             <p class="text-[10px] text-slate-400">Görsel Önizlemesi & Sosyal Medya Paylaşımı</p>
           </div>
         </div>
@@ -445,10 +452,10 @@
 
       <!-- PNG Önizleme Alanı -->
       <div class="my-4 flex flex-col items-center">
-        <div id="shareImageContainer" class="w-full flex justify-center bg-slate-100 p-2 rounded-2xl border border-slate-200 overflow-hidden shadow-inner">
-          <span class="text-xs text-slate-400 py-8">Görsel hazırlanıyor...</span>
+        <div id="shareImageContainer" class="w-full flex justify-center bg-slate-950 p-3 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+          <span class="text-xs text-slate-400 py-12">Görsel hazırlanıyor...</span>
         </div>
-        <span class="text-[10px] text-slate-400 mt-2 font-medium">Görsel doğrudan kaydedilip hikayelere atılmaya uygundur.</span>
+        <span class="text-[10px] text-slate-400 mt-2 font-medium">Görsel doğrudan kaydedilip Instagram Story'ye atılmaya uygundur.</span>
       </div>
 
       <!-- Paylaşım Butonları -->
@@ -471,13 +478,16 @@
           </button>
         </div>
 
-        <button onclick="downloadShareImage()" class="w-full mt-2 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-xl text-xs font-bold transition">
+        <button onclick="downloadShareImage()" class="w-full mt-2 flex items-center justify-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 py-2.5 rounded-xl text-xs font-bold transition">
           <i class="fa-solid fa-download text-slate-500"></i>
           <span>Görseli Telefona / PC'ye İndir</span>
         </button>
       </div>
     </div>
   </div>
+
+  <!-- EKRAN GÖRÜNTÜSÜ İÇİN GİZLİ ŞABLON -->
+  <div id="hiddenShareTemplate" class="fixed -left-[9999px] -top-[9999px] w-[460px] bg-[#0b0f19] text-white p-6"></div>
 
   <!-- Mobil Alt Bar -->
   <nav class="sm:hidden fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur-md border-t border-slate-200 px-2 py-2 z-40 flex items-center justify-around shadow-2xl">
@@ -535,6 +545,7 @@
     let chatMessages = [];
     let previousChampion = null;
 
+    let activeShareType = null; // 'group' veya 'best3rd'
     let activeShareGroup = null;
     let activeShareDataUrl = null;
     let activeShareBlob = null;
@@ -572,7 +583,7 @@
       }
       renderAll();
       renderChatUI();
-      renderChatMessages(); // Admin açıldığında silme butonlarını çiz
+      renderChatMessages();
     }
 
     function triggerChampionConfetti() {
@@ -776,57 +787,249 @@
     }
 
     // ----------------------------------------------------
-    // DÜZELTİLMİŞ GRUP PAYLAŞIM & PNG ÜRETİM MOTORU
+    // GRUP PAYLAŞIM GÖRSELİ OLUŞTURMA
     // ----------------------------------------------------
     window.openShareGroupModal = function(letter) {
+      activeShareType = 'group';
       activeShareGroup = letter;
       const modal = document.getElementById('groupShareModal');
       document.getElementById('shareModalTitle').innerText = `Grup ${letter} • Puan Tablosu Paylaş`;
       
       const container = document.getElementById('shareImageContainer');
-      container.innerHTML = `<div class="py-10 flex flex-col items-center gap-2"><div class="w-6 h-6 border-2 border-iyte border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-500 font-bold">Görsel hazırlanıyor...</span></div>`;
+      container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">Premium görsel oluşturuluyor...</span></div>`;
       modal.classList.remove('hidden');
 
-      const targetCard = document.getElementById(`group-card-${letter}`);
-      if (!targetCard) return;
+      const standings = calculateStandings(letter);
+      const g = db.groups[letter];
+
+      const tableRowsHTML = standings.map((st, idx) => `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); height: 44px; ${idx < 2 ? 'background-color: rgba(16,185,129,0.08);' : ''}">
+          <td style="padding: 0 8px; font-weight: 900; font-size: 14px; text-align: center; color: ${idx < 2 ? '#34d399' : '#64748b'}; vertical-align: middle; line-height: 44px;">
+            ${idx + 1}
+          </td>
+          <td style="padding: 0 12px; font-weight: 800; font-size: 14px; color: #ffffff; vertical-align: middle; line-height: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${st.name}
+          </td>
+          <td style="padding: 0 6px; font-size: 14px; font-weight: 700; text-align: center; color: #94a3b8; vertical-align: middle; line-height: 44px;">
+            ${st.O}
+          </td>
+          <td style="padding: 0 6px; font-size: 14px; font-weight: 900; text-align: center; color: ${st.AV > 0 ? '#34d399' : st.AV < 0 ? '#f43f5e' : '#cbd5e1'}; vertical-align: middle; line-height: 44px;">
+            ${st.AV > 0 ? `+${st.AV}` : st.AV}
+          </td>
+          <td style="padding: 0 10px; font-weight: 900; font-size: 16px; text-align: center; color: #fbbf24; vertical-align: middle; line-height: 44px;">
+            ${st.P}
+          </td>
+        </tr>
+      `).join('');
+
+      const matchRowsHTML = (g.matches || []).map(m => {
+        const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
+        const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
+        const isPlayed = (m.s1 !== null && m.s2 !== null && m.s1 !== '' && m.s2 !== '');
+        const scoreText = isPlayed ? `${m.s1} - ${m.s2}` : 'vs';
+
+        return `
+          <div style="background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; margin-bottom: 6px; padding: 4px 12px;">
+            <table style="width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0;">
+              <tr style="height: 38px;">
+                <td style="width: 38%; text-align: left; font-weight: 800; font-size: 13px; color: #f1f5f9; vertical-align: middle; line-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0;">
+                  ${p1}
+                </td>
+                <td style="width: 24%; text-align: center; vertical-align: middle; padding: 0;">
+                  <span style="display: inline-block; min-width: 64px; height: 26px; line-height: 26px; border-radius: 6px; font-weight: 900; font-family: monospace; font-size: 13px; text-align: center; white-space: nowrap; box-sizing: border-box; ${isPlayed ? 'background-color: #80141d; color: #ffffff; border: 1px solid #991b1b;' : 'background-color: rgba(255,255,255,0.08); color: #64748b;'}">
+                    ${scoreText}
+                  </span>
+                </td>
+                <td style="width: 38%; text-align: right; font-weight: 800; font-size: 13px; color: #f1f5f9; vertical-align: middle; line-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0;">
+                  ${p2}
+                </td>
+              </tr>
+            </table>
+          </div>
+        `;
+      }).join('');
+
+      const hiddenTpl = document.getElementById('hiddenShareTemplate');
+      hiddenTpl.innerHTML = `
+        <div style="background: radial-gradient(circle at top right, #241016 0%, #0b0f19 80%); border-radius: 28px; padding: 26px; border: 1px solid rgba(255,255,255,0.1); width: 440px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <tr style="height: 50px;">
+              <td style="width: 44px; vertical-align: middle; padding-bottom: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #80141d, #4c0b11); font-weight: 900; font-size: 18px; color: #ffffff; box-shadow: 0 4px 12px rgba(128,20,29,0.5); text-align: center; line-height: 38px;">
+                  ${letter}
+                </div>
+              </td>
+              <td style="vertical-align: middle; padding-left: 8px; padding-bottom: 12px;">
+                <div style="font-weight: 900; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; line-height: 1.2;">Grup ${letter} Tablosu</div>
+                <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; margin-top: 3px;">İYTE Futbol • FC 27 Dünya Kupası</div>
+              </td>
+              <td style="text-align: right; vertical-align: middle; padding-bottom: 12px;">
+                <span style="display: inline-block; font-weight: 900; font-size: 10px; letter-spacing: 1px; color: #fbbf24; background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.3); padding: 5px 11px; border-radius: 999px; text-transform: uppercase; line-height: 1;">CANLI</span>
+              </td>
+            </tr>
+          </table>
+
+          <div style="background-color: rgba(255,255,255,0.02); border-radius: 18px; padding: 4px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px;">
+            <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+              <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); height: 34px; font-size: 11px; text-transform: uppercase; font-weight: 800; color: #64748b; letter-spacing: 0.5px;">
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">#</th>
+                  <th style="width: 48%; text-align: left; padding-left: 12px; vertical-align: middle; line-height: 34px;">Oyuncu</th>
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">O</th>
+                  <th style="width: 14%; text-align: center; vertical-align: middle; line-height: 34px;">AV</th>
+                  <th style="width: 14%; text-align: center; vertical-align: middle; color: #fbbf24; line-height: 34px;">P</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHTML}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background-color: rgba(255,255,255,0.02); border-radius: 18px; padding: 12px; border: 1px solid rgba(255,255,255,0.05);">
+            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 8px; letter-spacing: 0.8px; line-height: 1;">Grup Karşılaşmaları</div>
+            ${matchRowsHTML}
+          </div>
+
+          <div style="margin-top: 14px; text-align: center; font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 0.4px; line-height: 1;">
+            iyte-fc-27.vercel.app • Kampüs Espor Turnuvası
+          </div>
+        </div>
+      `;
 
       setTimeout(() => {
-        html2canvas(targetCard, {
-          backgroundColor: '#ffffff',
-          scale: 2.5,
+        html2canvas(hiddenTpl, {
+          backgroundColor: '#0b0f19',
+          scale: 3,
           useCORS: true,
-          logging: false,
-          onclone: (clonedDoc) => {
-            const clonedCard = clonedDoc.getElementById(`group-card-${letter}`);
-            if (clonedCard) {
-              clonedCard.style.width = '420px';
-              clonedCard.style.padding = '20px';
-              
-              // İsimlerdeki taşma kesintilerini kaldır
-              clonedCard.querySelectorAll('.truncate').forEach(el => {
-                el.style.overflow = 'visible';
-                el.style.textOverflow = 'clip';
-                el.style.whiteSpace = 'normal';
-                el.style.wordBreak = 'break-word';
-              });
-
-              clonedCard.querySelectorAll('.w-5\\/12').forEach(el => {
-                el.style.width = '40%';
-              });
-              clonedCard.querySelectorAll('.w-2\\/12').forEach(el => {
-                el.style.width = '20%';
-              });
-            }
-          }
+          logging: false
         }).then(canvas => {
           activeShareDataUrl = canvas.toDataURL('image/png');
           canvas.toBlob(blob => { activeShareBlob = blob; });
-          container.innerHTML = `<img src="${activeShareDataUrl}" class="max-h-72 object-contain rounded-xl shadow-md border border-slate-200" alt="Grup ${letter}">`;
+          container.innerHTML = `<img src="${activeShareDataUrl}" class="max-h-84 object-contain rounded-2xl shadow-2xl border border-slate-700" alt="Grup ${letter}">`;
         }).catch(err => {
           console.error("Görsel oluşturma hatası:", err);
           container.innerHTML = `<span class="text-xs text-rose-500 py-4">Görsel oluşturulamadı.</span>`;
         });
-      }, 150);
+      }, 100);
+    };
+
+    // ----------------------------------------------------
+    // EN İYİ 8 ÜÇÜNCÜ PAYLAŞIM GÖRSELİ OLUŞTURMA
+    // ----------------------------------------------------
+    window.openShareBest3rdModal = function() {
+      activeShareType = 'best3rd';
+      activeShareGroup = 'En-Iyi-8-Ucuncu';
+      const modal = document.getElementById('groupShareModal');
+      document.getElementById('shareModalTitle').innerText = `En İyi 8 Üçüncü • Sıralama Paylaş`;
+      
+      const container = document.getElementById('shareImageContainer');
+      container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">En İyi 3.'ler tablosu hazırlanıyor...</span></div>`;
+      modal.classList.remove('hidden');
+
+      let allThirds = [];
+      GROUP_LETTERS.forEach(letter => {
+        const standings = calculateStandings(letter);
+        if (standings.length >= 3) {
+          allThirds.push({ group: letter, ...standings[2] });
+        }
+      });
+
+      allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+
+      const tableRowsHTML = allThirds.map((st, idx) => {
+        const qualifies = idx < 8;
+        return `
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); height: 38px; ${qualifies ? 'background-color: rgba(16,185,129,0.08);' : ''}">
+            <td style="padding: 0 6px; font-weight: 900; font-size: 13px; text-align: center; color: ${qualifies ? '#34d399' : '#64748b'}; vertical-align: middle; line-height: 38px;">
+              ${idx + 1}
+            </td>
+            <td style="padding: 0 6px; font-weight: 800; font-size: 12px; color: #fb7185; text-align: center; vertical-align: middle; line-height: 38px;">
+              ${st.group}
+            </td>
+            <td style="padding: 0 10px; font-weight: 800; font-size: 13px; color: #ffffff; vertical-align: middle; line-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${st.name}
+            </td>
+            <td style="padding: 0 6px; font-size: 13px; font-weight: 700; text-align: center; color: #94a3b8; vertical-align: middle; line-height: 38px;">
+              ${st.O}
+            </td>
+            <td style="padding: 0 6px; font-size: 13px; font-weight: 900; text-align: center; color: ${st.AV > 0 ? '#34d399' : st.AV < 0 ? '#f43f5e' : '#cbd5e1'}; vertical-align: middle; line-height: 38px;">
+              ${st.AV > 0 ? `+${st.AV}` : st.AV}
+            </td>
+            <td style="padding: 0 8px; font-weight: 900; font-size: 14px; text-align: center; color: #fbbf24; vertical-align: middle; line-height: 38px;">
+              ${st.P}
+            </td>
+            <td style="padding: 0 8px; text-align: right; vertical-align: middle;">
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; text-transform: uppercase; line-height: 1.2; ${qualifies ? 'background-color: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3);' : 'background-color: rgba(255,255,255,0.06); color: #64748b;'}">
+                ${qualifies ? 'Son 32' : 'Elendi'}
+              </span>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      const hiddenTpl = document.getElementById('hiddenShareTemplate');
+      hiddenTpl.innerHTML = `
+        <div style="background: radial-gradient(circle at top right, #241016 0%, #0b0f19 80%); border-radius: 28px; padding: 26px; border: 1px solid rgba(255,255,255,0.1); width: 440px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <tr style="height: 50px;">
+              <td style="width: 44px; vertical-align: middle; padding-bottom: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #fbbf24, #b45309); font-weight: 900; font-size: 18px; color: #0b0f19; box-shadow: 0 4px 12px rgba(251,191,36,0.4); text-align: center; line-height: 38px;">
+                  ⭐
+                </div>
+              </td>
+              <td style="vertical-align: middle; padding-left: 8px; padding-bottom: 12px;">
+                <div style="font-weight: 900; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; line-height: 1.2;">En İyi 8 Üçüncü</div>
+                <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; margin-top: 3px;">İlk 8 Sıra Son 32 Turuna Kalır</div>
+              </td>
+              <td style="text-align: right; vertical-align: middle; padding-bottom: 12px;">
+                <span style="display: inline-block; font-weight: 900; font-size: 10px; letter-spacing: 1px; color: #34d399; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 5px 11px; border-radius: 999px; text-transform: uppercase; line-height: 1;">CANLI</span>
+              </td>
+            </tr>
+          </table>
+
+          <div style="background-color: rgba(255,255,255,0.02); border-radius: 18px; padding: 4px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px;">
+            <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+              <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); height: 34px; font-size: 10px; text-transform: uppercase; font-weight: 800; color: #64748b; letter-spacing: 0.5px;">
+                  <th style="width: 9%; text-align: center; vertical-align: middle; line-height: 34px;">#</th>
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">Grup</th>
+                  <th style="width: 38%; text-align: left; padding-left: 10px; vertical-align: middle; line-height: 34px;">Oyuncu</th>
+                  <th style="width: 9%; text-align: center; vertical-align: middle; line-height: 34px;">O</th>
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">AV</th>
+                  <th style="width: 10%; text-align: center; vertical-align: middle; color: #fbbf24; line-height: 34px;">P</th>
+                  <th style="width: 18%; text-align: right; padding-right: 6px; vertical-align: middle; line-height: 34px;">Bilet</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHTML}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top: 14px; text-align: center; font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 0.4px; line-height: 1;">
+            iyte-fc-27.vercel.app • Kampüs Espor Turnuvası
+          </div>
+        </div>
+      `;
+
+      setTimeout(() => {
+        html2canvas(hiddenTpl, {
+          backgroundColor: '#0b0f19',
+          scale: 3,
+          useCORS: true,
+          logging: false
+        }).then(canvas => {
+          activeShareDataUrl = canvas.toDataURL('image/png');
+          canvas.toBlob(blob => { activeShareBlob = blob; });
+          container.innerHTML = `<img src="${activeShareDataUrl}" class="max-h-84 object-contain rounded-2xl shadow-2xl border border-slate-700" alt="En İyi 8 Üçüncü">`;
+        }).catch(err => {
+          console.error("Görsel oluşturma hatası:", err);
+          container.innerHTML = `<span class="text-xs text-rose-500 py-4">Görsel oluşturulamadı.</span>`;
+        });
+      }, 100);
     };
 
     window.closeShareModal = function() {
@@ -836,37 +1039,56 @@
     window.downloadShareImage = function() {
       if (!activeShareDataUrl) return;
       const link = document.createElement('a');
-      link.download = `IYTE-FC27-Grup-${activeShareGroup}.png`;
+      link.download = `IYTE-FC27-${activeShareGroup}.png`;
       link.href = activeShareDataUrl;
       link.click();
     };
 
     window.shareToWhatsApp = function() {
-      if (!activeShareGroup) return;
-      const standings = calculateStandings(activeShareGroup);
-      let text = `🏆 *İYTE FC 27 Dünya Kupası • Grup ${activeShareGroup} Puan Durumu*\n\n`;
-      standings.forEach((s, idx) => {
-        text += `${idx + 1}. ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
-      });
+      let text = '';
+      if (activeShareType === 'best3rd') {
+        text = `🏆 *İYTE FC 27 Dünya Kupası • En İyi 8 Üçüncü Sıralaması*\n\n`;
+        let allThirds = [];
+        GROUP_LETTERS.forEach(letter => {
+          const standings = calculateStandings(letter);
+          if (standings.length >= 3) allThirds.push({ group: letter, ...standings[2] });
+        });
+        allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+        allThirds.slice(0, 8).forEach((s, idx) => {
+          text += `${idx + 1}. [Grup ${s.group}] ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
+        });
+      } else {
+        if (!activeShareGroup) return;
+        const standings = calculateStandings(activeShareGroup);
+        text = `🏆 *İYTE FC 27 Dünya Kupası • Grup ${activeShareGroup} Puan Durumu*\n\n`;
+        standings.forEach((s, idx) => {
+          text += `${idx + 1}. ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
+        });
+      }
       text += `\nCanlı takip: ${window.location.href}`;
       window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
     };
 
     window.shareToX = function() {
-      if (!activeShareGroup) return;
-      const standings = calculateStandings(activeShareGroup);
-      const leader = standings[0] ? standings[0].name : '';
-      const text = `İYTE FC 27 Turnuvası Grup ${activeShareGroup} sonuçları ve canlı puan durumu! Lider: ${leader} 🔥`;
+      let text = '';
+      if (activeShareType === 'best3rd') {
+        text = `İYTE FC 27 Turnuvası En İyi 8 Üçüncü tablosu güncellendi! Son 32 heyecanı başlıyor 🔥`;
+      } else {
+        if (!activeShareGroup) return;
+        const standings = calculateStandings(activeShareGroup);
+        const leader = standings[0] ? standings[0].name : '';
+        text = `İYTE FC 27 Turnuvası Grup ${activeShareGroup} sonuçları ve canlı puan durumu! Lider: ${leader} 🔥`;
+      }
       window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
     };
 
     window.shareToInstagramOrNative = function() {
       if (navigator.share && activeShareBlob) {
-        const file = new File([activeShareBlob], `Grup-${activeShareGroup}.png`, { type: 'image/png' });
+        const file = new File([activeShareBlob], `IYTE-FC27-${activeShareGroup}.png`, { type: 'image/png' });
         navigator.share({
           files: [file],
-          title: `İYTE FC 27 Turnuvası - Grup ${activeShareGroup}`,
-          text: `Grup ${activeShareGroup} puan durumu!`
+          title: `İYTE FC 27 Turnuvası - ${activeShareType === 'best3rd' ? 'En İyi 8 Üçüncü' : `Grup ${activeShareGroup}`}`,
+          text: `Canlı Turnuva Tablosu!`
         }).catch(e => console.log("Paylaşım iptal edildi:", e));
       } else {
         downloadShareImage();
@@ -1137,7 +1359,7 @@
                 </div>
                 
                 <div class="flex items-center gap-1.5">
-                  <button data-html2canvas-ignore="true" onclick="openShareGroupModal('${letter}')" title="Puan Durumunu Paylaş" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-600 transition text-[11px] font-bold">
+                  <button onclick="openShareGroupModal('${letter}')" title="Puan Durumunu Paylaş" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-600 transition text-[11px] font-bold">
                     <i class="fa-solid fa-share-nodes text-[10px]"></i>
                     <span>Paylaş</span>
                   </button>
@@ -1515,7 +1737,6 @@
       }
     }
 
-    // Yönetici İçin Mesaj Silme
     window.deleteChatMessage = function(messageId) {
       if (!isAdmin) {
         alert("Sadece yönetici mesaj silebilir!");
@@ -1607,12 +1828,10 @@
         timestamp: Date.now()
       };
 
-      // Mesajı Canlı Sohbete Gönder
       if (chatRef) {
         chatRef.push(msgData);
       }
 
-      // Güvenlik & Denetim Loglaması (IP, User-Agent, vb.)
       try {
         let userIp = "Bilinmiyor";
         try {
