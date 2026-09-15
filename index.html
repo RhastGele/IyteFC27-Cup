@@ -18,7 +18,7 @@
   <!-- HTML2Canvas (Görsel Oluşturucu) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-  <!-- Firebase (Sohbet & Loglama) -->
+  <!-- Firebase (Canlı Veritabanı & Sohbet) -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
@@ -98,10 +98,15 @@
   <div class="bg-iyte text-white text-xs font-medium px-4 py-2 flex items-center justify-between shadow-inner">
     <div class="flex items-center gap-2">
       <span class="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-      <span class="tracking-tight text-white/90">FC 27 Kampüs Turnuvası • Canlı Takip Paneli</span>
+      <span class="tracking-tight text-white/90">FC 27 Kampüs Turnuvası • Canlı Bulut Senkronizasyonu</span>
     </div>
-    <div class="text-[11px] bg-white/15 px-2.5 py-0.5 rounded-full font-semibold backdrop-blur-xs">
-      48 Katılımcı
+    <div class="flex items-center gap-2">
+      <span id="syncIndicator" class="text-[10px] bg-white/20 text-emerald-200 px-2 py-0.5 rounded-full font-bold flex items-center gap-1">
+        <i class="fa-solid fa-cloud"></i> <span>Bulut Bağlı</span>
+      </span>
+      <div class="text-[11px] bg-white/15 px-2.5 py-0.5 rounded-full font-semibold backdrop-blur-xs">
+        48 Katılımcı
+      </div>
     </div>
   </div>
 
@@ -149,11 +154,11 @@
       <div class="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <span class="inline-flex items-center gap-1.5 bg-white/20 text-white text-[11px] font-bold px-2.5 py-0.5 rounded-full mb-2 backdrop-blur-sm">
-            <i class="fa-solid fa-shield-halved text-[10px]"></i> FC 27 Turnuva Sistemi
+            <i class="fa-solid fa-shield-halved text-[10px]"></i> FC 27 Canlı Turnuva Ağı
           </span>
           <h2 class="text-xl sm:text-2xl font-black tracking-tight">Turnuva Yönetim Paneli</h2>
           <p class="text-xs sm:text-sm text-white/80 mt-0.5 font-medium max-w-md">
-            Grup maçları, eleme aşamaları ve canlı soru-cevap masası.
+            Grup maçları, canlı fikstür ve tüm cihazlarda anlık güncellenen sonuçlar.
           </p>
         </div>
 
@@ -215,7 +220,6 @@
             <span class="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
               Otomatik Sıralama
             </span>
-            <!-- EN İYİ 3.'LERİ PAYLAŞ BUTONU -->
             <button onclick="openShareBest3rdModal()" title="En İyi 3.'leri Paylaş" class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-700 transition text-xs font-bold shadow-xs active:scale-95">
               <i class="fa-solid fa-share-nodes text-[11px]"></i>
               <span>Paylaş</span>
@@ -515,7 +519,7 @@
 
   <script>
     // ----------------------------------------------------
-    // SOHBET & GÜVENLİK LOGLARI İÇİN FIREBASE
+    // FIREBASE BAĞLANTISI (CANLI VERİTABANI, SOHBET & LOGLAR)
     // ----------------------------------------------------
     const firebaseConfig = {
       apiKey: "AIzaSyDwVLSgnHf2JumSsh1ABjye3vQJz7GdysA",
@@ -530,10 +534,14 @@
 
     let chatRef = null;
     let auditLogRef = null;
+    let dbRef = null;
+
     try {
       firebase.initializeApp(firebaseConfig);
-      chatRef = firebase.database().ref("tournament_chat");
-      auditLogRef = firebase.database().ref("user_audit_logs");
+      const rtdb = firebase.database();
+      chatRef = rtdb.ref("tournament_chat");
+      auditLogRef = rtdb.ref("user_audit_logs");
+      dbRef = rtdb.ref("tournament_data");
     } catch(e) {
       console.warn("Firebase bağlantı hatası:", e);
     }
@@ -545,7 +553,7 @@
     let chatMessages = [];
     let previousChampion = null;
 
-    let activeShareType = null; // 'group' veya 'best3rd'
+    let activeShareType = null;
     let activeShareGroup = null;
     let activeShareDataUrl = null;
     let activeShareBlob = null;
@@ -601,12 +609,9 @@
     }
 
     // ----------------------------------------------------
-    // TURNUVA VERİTABANI
+    // CANLI VERİTABANI VE SENKRONİZASYON MOTORU
     // ----------------------------------------------------
-    function initData() {
-      const saved = localStorage.getItem('iyte_fc27_fast_db');
-      if (saved) return JSON.parse(saved);
-
+    function getFreshInitialData() {
       const initial = {
         groups: {},
         r32: [],
@@ -650,10 +655,36 @@
       return initial;
     }
 
-    let db = initData();
+    // İlk açılışta yerel veya taze veri
+    let db = (() => {
+      const saved = localStorage.getItem('iyte_fc27_fast_db');
+      return saved ? JSON.parse(saved) : getFreshInitialData();
+    })();
 
+    // FIREBASE BULUT DİNLEYİCİSİ (Bütün cihazlar burayı canlı dinler)
+    if (dbRef) {
+      dbRef.on('value', (snapshot) => {
+        const cloudData = snapshot.val();
+        if (cloudData && cloudData.groups) {
+          db = cloudData;
+          localStorage.setItem('iyte_fc27_fast_db', JSON.stringify(db));
+          renderAll();
+          
+          const ind = document.getElementById('syncIndicator');
+          if (ind) ind.innerHTML = `<i class="fa-solid fa-cloud-arrow-down text-emerald-300"></i> <span>Bulut Güncel</span>`;
+        } else {
+          // Firebase bomboşsa elimizdeki veriyi oraya ilk kez tohumlayalım
+          if (isAdmin) dbRef.set(db);
+        }
+      });
+    }
+
+    // Veri değiştiğinde hem localStorage'a hem Firebase'e yazar
     function saveDB() {
       localStorage.setItem('iyte_fc27_fast_db', JSON.stringify(db));
+      if (dbRef) {
+        dbRef.set(db).catch(err => console.error("Buluta kaydedilemedi:", err));
+      }
       renderAll();
     }
 
@@ -796,7 +827,7 @@
       document.getElementById('shareModalTitle').innerText = `Grup ${letter} • Puan Tablosu Paylaş`;
       
       const container = document.getElementById('shareImageContainer');
-      container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">Premium görsel oluşturuluyor...</span></div>`;
+      container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">Görsel oluşturuluyor...</span></div>`;
       modal.classList.remove('hidden');
 
       const standings = calculateStandings(letter);
