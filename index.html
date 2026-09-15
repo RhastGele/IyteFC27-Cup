@@ -519,6 +519,15 @@
 
   <script>
     // ----------------------------------------------------
+    // YARDIMCI GÜVENLİ SAYI DÖNÜŞTÜRÜCÜ (NaN ÖNLEYİCİ)
+    // ----------------------------------------------------
+    function safeInt(val, fallback = 0) {
+      if (val === null || val === undefined || val === '') return fallback;
+      const parsed = parseInt(val, 10);
+      return isNaN(parsed) ? fallback : parsed;
+    }
+
+    // ----------------------------------------------------
     // FIREBASE BAĞLANTISI (CANLI VERİTABANI, SOHBET & LOGLAR)
     // ----------------------------------------------------
     const firebaseConfig = {
@@ -609,7 +618,7 @@
     }
 
     // ----------------------------------------------------
-    // CANLI VERİTABANI VE SENKRONİZASYON MOTORU
+    // TURNUVA VERİTABANI İLK DEĞERLERİ
     // ----------------------------------------------------
     function getFreshInitialData() {
       const initial = {
@@ -637,12 +646,12 @@
             { id: `${g}4`, name: `${g}4 Oyuncusu` }
           ],
           matches: [
-            { id: `${g}_m1`, p1: `${g}1`, p2: `${g}2`, s1: null, s2: null },
-            { id: `${g}_m2`, p1: `${g}3`, p2: `${g}4`, s1: null, s2: null },
-            { id: `${g}_m3`, p1: `${g}1`, p2: `${g}3`, s1: null, s2: null },
-            { id: `${g}_m4`, p1: `${g}2`, p2: `${g}4`, s1: null, s2: null },
-            { id: `${g}_m5`, p1: `${g}1`, p2: `${g}4`, s1: null, s2: null },
-            { id: `${g}_m6`, p1: `${g}2`, p2: `${g}3`, s1: null, s2: null }
+            { id: `${g}_m1`, p1: `${g}1`, p2: `${g}2`, s1: '', s2: '' },
+            { id: `${g}_m2`, p1: `${g}3`, p2: `${g}4`, s1: '', s2: '' },
+            { id: `${g}_m3`, p1: `${g}1`, p2: `${g}3`, s1: '', s2: '' },
+            { id: `${g}_m4`, p1: `${g}2`, p2: `${g}4`, s1: '', s2: '' },
+            { id: `${g}_m5`, p1: `${g}1`, p2: `${g}4`, s1: '', s2: '' },
+            { id: `${g}_m6`, p1: `${g}2`, p2: `${g}3`, s1: '', s2: '' }
           ]
         };
       });
@@ -655,61 +664,84 @@
       return initial;
     }
 
-    // İlk açılışta yerel veya taze veri
     let db = (() => {
       const saved = localStorage.getItem('iyte_fc27_fast_db');
       return saved ? JSON.parse(saved) : getFreshInitialData();
     })();
 
-    // FIREBASE BULUT DİNLEYİCİSİ (Bütün cihazlar burayı canlı dinler)
+    // ----------------------------------------------------
+    // BULUT DİNLEME VE DERİN BİRLEŞTİRME (VERİ KAYBI ENGELLEYİCİ)
+    // ----------------------------------------------------
     if (dbRef) {
       dbRef.on('value', (snapshot) => {
         const cloudData = snapshot.val();
-        if (cloudData && cloudData.groups) {
-          db = cloudData;
+        if (cloudData) {
+          // Gelen bulut verisini yerel şablonla tam harmanla
+          if (cloudData.groups) {
+            Object.keys(cloudData.groups).forEach(gKey => {
+              if (db.groups[gKey]) {
+                if (cloudData.groups[gKey].players) db.groups[gKey].players = cloudData.groups[gKey].players;
+                if (cloudData.groups[gKey].matches) {
+                  cloudData.groups[gKey].matches.forEach((cm, mIdx) => {
+                    if (db.groups[gKey].matches[mIdx]) {
+                      db.groups[gKey].matches[mIdx].s1 = (cm.s1 !== undefined && cm.s1 !== null) ? cm.s1 : '';
+                      db.groups[gKey].matches[mIdx].s2 = (cm.s2 !== undefined && cm.s2 !== null) ? cm.s2 : '';
+                    }
+                  });
+                }
+              }
+            });
+          }
+          if (cloudData.r32) db.r32 = cloudData.r32;
+          if (cloudData.tree) db.tree = cloudData.tree;
+          if (cloudData.finals) db.finals = cloudData.finals;
+
           localStorage.setItem('iyte_fc27_fast_db', JSON.stringify(db));
           renderAll();
-          
+
           const ind = document.getElementById('syncIndicator');
-          if (ind) ind.innerHTML = `<i class="fa-solid fa-cloud-arrow-down text-emerald-300"></i> <span>Bulut Güncel</span>`;
+          if (ind) ind.innerHTML = `<i class="fa-solid fa-cloud-arrow-down text-emerald-300"></i> <span>Bulut Senkronize</span>`;
         } else {
-          // Firebase bomboşsa elimizdeki veriyi oraya ilk kez tohumlayalım
+          // Bulut ilk açılışta boşsa tohumla
           if (isAdmin) dbRef.set(db);
         }
       });
     }
 
-    // Veri değiştiğinde hem localStorage'a hem Firebase'e yazar
-    function saveDB() {
+    // NOKTA ATIŞI BULUT GÜNCELLEMESİ (BÜTÜN DATABASE'İN ÜSTÜNE YAZMAZ!)
+    function syncPathToCloud(path, data) {
       localStorage.setItem('iyte_fc27_fast_db', JSON.stringify(db));
       if (dbRef) {
-        dbRef.set(db).catch(err => console.error("Buluta kaydedilemedi:", err));
+        dbRef.child(path).set(data).catch(err => console.error(`Bulut yazma hatası (${path}):`, err));
       }
       renderAll();
     }
 
     function calculateStandings(groupKey) {
       const g = db.groups[groupKey];
+      if (!g || !g.players) return [];
       const stats = {};
 
       g.players.forEach(p => {
-        stats[p.id] = { id: p.id, name: p.name, O: 0, G: 0, B: 0, M: 0, AG: 0, YG: 0, AV: 0, P: 0 };
+        stats[p.id] = { id: p.id, name: p.name || 'Oyuncu', O: 0, G: 0, B: 0, M: 0, AG: 0, YG: 0, AV: 0, P: 0 };
       });
 
-      g.matches.forEach(m => {
+      (g.matches || []).forEach(m => {
         if (m.s1 !== null && m.s2 !== null && m.s1 !== "" && m.s2 !== "") {
-          const s1 = parseInt(m.s1);
-          const s2 = parseInt(m.s2);
+          const s1 = safeInt(m.s1);
+          const s2 = safeInt(m.s2);
           const p1 = stats[m.p1];
           const p2 = stats[m.p2];
 
-          p1.O++; p2.O++;
-          p1.AG += s1; p1.YG += s2;
-          p2.AG += s2; p2.YG += s1;
+          if (p1 && p2) {
+            p1.O++; p2.O++;
+            p1.AG += s1; p1.YG += s2;
+            p2.AG += s2; p2.YG += s1;
 
-          if (s1 > s2) { p1.G++; p1.P += 3; p2.M++; }
-          else if (s2 > s1) { p2.G++; p2.P += 3; p1.M++; }
-          else { p1.B++; p2.B++; p1.P += 1; p2.P += 1; }
+            if (s1 > s2) { p1.G++; p1.P += 3; p2.M++; }
+            else if (s2 > s1) { p2.G++; p2.P += 3; p1.M++; }
+            else { p1.B++; p2.B++; p1.P += 1; p2.P += 1; }
+          }
         }
       });
 
@@ -723,12 +755,13 @@
 
       GROUP_LETTERS.forEach(gKey => {
         const g = db.groups[gKey];
-        g.matches.forEach(m => {
+        if (!g) return;
+        (g.matches || []).forEach(m => {
           if (m.s1 !== null && m.s2 !== null && m.s1 !== "" && m.s2 !== "") {
             const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
             const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
-            const s1 = parseInt(m.s1) || 0;
-            const s2 = parseInt(m.s2) || 0;
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
 
             if (p1 === playerName) {
               stats.matches++; stats.goals += s1; stats.conceded += s2;
@@ -742,10 +775,11 @@
       });
 
       const scanKnockout = (list) => {
+        if (!list) return;
         list.forEach(m => {
           if (m.s1 !== "" && m.s2 !== "" && m.s1 !== null && m.s2 !== null) {
-            const s1 = parseInt(m.s1) || 0;
-            const s2 = parseInt(m.s2) || 0;
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
             if (m.p1 === playerName) {
               stats.matches++; stats.goals += s1; stats.conceded += s2;
               if (s1 > s2) stats.wins++;
@@ -758,10 +792,12 @@
       };
 
       scanKnockout(db.r32);
-      scanKnockout(db.tree.r16);
-      scanKnockout(db.tree.r8);
-      scanKnockout(db.tree.r4);
-      scanKnockout(db.finals.bo3);
+      if (db.tree) {
+        scanKnockout(db.tree.r16);
+        scanKnockout(db.tree.r8);
+        scanKnockout(db.tree.r4);
+      }
+      if (db.finals) scanKnockout(db.finals.bo3);
 
       stats.gd = stats.goals - stats.conceded;
       return stats;
@@ -773,8 +809,8 @@
 
       const evaluate = (p1, p2, s1, s2, stageName) => {
         if (s1 !== null && s2 !== null && s1 !== "" && s2 !== "") {
-          const score1 = parseInt(s1) || 0;
-          const score2 = parseInt(s2) || 0;
+          const score1 = safeInt(s1);
+          const score2 = safeInt(s2);
           const totalGoals = score1 + score2;
           const diff = Math.abs(score1 - score2);
 
@@ -789,18 +825,23 @@
 
       GROUP_LETTERS.forEach(gKey => {
         const g = db.groups[gKey];
-        g.matches.forEach(m => {
+        if (!g) return;
+        (g.matches || []).forEach(m => {
           const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
           const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
           evaluate(p1, p2, m.s1, m.s2, `Grup ${gKey}`);
         });
       });
 
-      db.r32.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Son 32'));
-      db.tree.r16.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Son 16'));
-      db.tree.r8.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Çeyrek Final'));
-      db.tree.r4.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Yarı Final'));
-      db.finals.bo3.forEach(m => evaluate(db.finals.p1, db.finals.p2, m.s1, m.s2, 'Büyük Final'));
+      if (db.r32) db.r32.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Son 32'));
+      if (db.tree) {
+        if (db.tree.r16) db.tree.r16.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Son 16'));
+        if (db.tree.r8) db.tree.r8.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Çeyrek Final'));
+        if (db.tree.r4) db.tree.r4.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Yarı Final'));
+      }
+      if (db.finals && db.finals.bo3) {
+        db.finals.bo3.forEach(m => evaluate(db.finals.p1, db.finals.p2, m.s1, m.s2, 'Büyük Final'));
+      }
 
       const bar = document.getElementById('matchOfTheTournamentBar');
       if (!bestMatch || highestDramaScore <= 0) {
@@ -1219,8 +1260,9 @@
 
       GROUP_LETTERS.forEach(gKey => {
         const g = db.groups[gKey];
+        if (!g || !g.players) return;
         g.players.forEach(p => {
-          if (p.name.toLowerCase().includes(q)) {
+          if (p.name && p.name.toLowerCase().includes(q)) {
             matchesFound.push({
               name: p.name,
               type: 'Grup',
@@ -1233,34 +1275,39 @@
         });
       });
 
-      db.r32.forEach((m, idx) => {
-        if (m.p1.toLowerCase().includes(q) || m.p2.toLowerCase().includes(q)) {
-          const matchedName = m.p1.toLowerCase().includes(q) ? m.p1 : m.p2;
-          matchesFound.push({
-            name: matchedName,
-            type: 'Son 32',
-            detail: m.title,
-            tab: 'round32',
-            targetId: `r32-card-${idx}`
-          });
-        }
-      });
-
-      ['r16', 'r8', 'r4'].forEach(roundKey => {
-        db.tree[roundKey].forEach((m, idx) => {
-          if (m.p1.toLowerCase().includes(q) || m.p2.toLowerCase().includes(q)) {
-            const matchedName = m.p1.toLowerCase().includes(q) ? m.p1 : m.p2;
-            const roundTitle = roundKey === 'r16' ? 'Son 16' : roundKey === 'r8' ? 'Çeyrek Final' : 'Yarı Final';
+      if (db.r32) {
+        db.r32.forEach((m, idx) => {
+          if ((m.p1 && m.p1.toLowerCase().includes(q)) || (m.p2 && m.p2.toLowerCase().includes(q))) {
+            const matchedName = (m.p1 && m.p1.toLowerCase().includes(q)) ? m.p1 : m.p2;
             matchesFound.push({
               name: matchedName,
-              type: 'Eleme Ağacı',
-              detail: `${roundTitle} • ${m.title}`,
-              tab: 'finalsTree',
-              targetId: `tree-card-${roundKey}-${idx}`
+              type: 'Son 32',
+              detail: m.title,
+              tab: 'round32',
+              targetId: `r32-card-${idx}`
             });
           }
         });
-      });
+      }
+
+      if (db.tree) {
+        ['r16', 'r8', 'r4'].forEach(roundKey => {
+          if (!db.tree[roundKey]) return;
+          db.tree[roundKey].forEach((m, idx) => {
+            if ((m.p1 && m.p1.toLowerCase().includes(q)) || (m.p2 && m.p2.toLowerCase().includes(q))) {
+              const matchedName = (m.p1 && m.p1.toLowerCase().includes(q)) ? m.p1 : m.p2;
+              const roundTitle = roundKey === 'r16' ? 'Son 16' : roundKey === 'r8' ? 'Çeyrek Final' : 'Yarı Final';
+              matchesFound.push({
+                name: matchedName,
+                type: 'Eleme Ağacı',
+                detail: `${roundTitle} • ${m.title}`,
+                tab: 'finalsTree',
+                targetId: `tree-card-${roundKey}-${idx}`
+              });
+            }
+          });
+        });
+      }
 
       if (matchesFound.length === 0) {
         dropdown.innerHTML = `<div class="p-2 text-center text-slate-400">Eşleşen oyuncu bulunamadı.</div>`;
@@ -1343,6 +1390,7 @@
       lettersToRender.forEach(letter => {
         const standings = calculateStandings(letter);
         const g = db.groups[letter];
+        if (!g) return;
 
         let tableRows = standings.map((st, idx) => `
           <tr class="${idx < 2 ? 'bg-emerald-50/60 font-semibold' : ''} transition-colors">
@@ -1358,7 +1406,7 @@
           </tr>
         `).join('');
 
-        let matchRows = g.matches.map(m => {
+        let matchRows = (g.matches || []).map(m => {
           const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
           const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
 
@@ -1367,10 +1415,10 @@
               <span class="truncate w-5/12 text-slate-700 font-medium text-left" title="${p1}">${p1}</span>
               <div class="flex items-center gap-1 justify-center w-2/12">
                 ${isAdmin
-                  ? `<input type="number" min="0" max="25" class="w-6 h-6 text-center bg-white border border-slate-300 rounded font-bold text-slate-800 focus:outline-none focus:border-iyte" value="${m.s1 ?? ''}" onchange="updateScore('${letter}', '${m.id}', this.value, true)">
+                  ? `<input type="number" min="0" max="25" class="w-6 h-6 text-center bg-white border border-slate-300 rounded font-bold text-slate-800 focus:outline-none focus:border-iyte" value="${m.s1 !== undefined && m.s1 !== null ? m.s1 : ''}" onchange="updateScore('${letter}', '${m.id}', this.value, true)">
                      <span class="text-slate-400 font-bold">:</span>
-                     <input type="number" min="0" max="25" class="w-6 h-6 text-center bg-white border border-slate-300 rounded font-bold text-slate-800 focus:outline-none focus:border-iyte" value="${m.s2 ?? ''}" onchange="updateScore('${letter}', '${m.id}', this.value, false)">`
-                  : `<span class="px-2 py-0.5 rounded font-mono font-bold text-[11px] ${m.s1 !== null && m.s2 !== null ? 'bg-slate-100 text-slate-900 shadow-2xs' : 'text-slate-400'}">${m.s1 !== null && m.s2 !== null ? `${m.s1}-${m.s2}` : 'vs'}</span>`
+                     <input type="number" min="0" max="25" class="w-6 h-6 text-center bg-white border border-slate-300 rounded font-bold text-slate-800 focus:outline-none focus:border-iyte" value="${m.s2 !== undefined && m.s2 !== null ? m.s2 : ''}" onchange="updateScore('${letter}', '${m.id}', this.value, false)">`
+                  : `<span class="px-2 py-0.5 rounded font-mono font-bold text-[11px] ${m.s1 !== '' && m.s2 !== '' && m.s1 !== null && m.s2 !== null ? 'bg-slate-100 text-slate-900 shadow-2xs' : 'text-slate-400'}">${m.s1 !== '' && m.s2 !== '' && m.s1 !== null && m.s2 !== null ? `${m.s1}-${m.s2}` : 'vs'}</span>`
                 }
               </div>
               <span class="truncate w-5/12 text-slate-700 font-medium text-right" title="${p2}">${p2}</span>
@@ -1461,6 +1509,7 @@
       const container = document.getElementById('round32Grid');
       container.innerHTML = '';
 
+      if (!db.r32) return;
       db.r32.forEach((match, idx) => {
         container.innerHTML += `
           <div id="r32-card-${idx}" class="bg-slate-50/80 border border-slate-200 rounded-2xl p-3 flex flex-col justify-between esport-card">
@@ -1473,23 +1522,23 @@
 
             <div class="flex items-center justify-between gap-1.5 mb-1.5">
               ${isAdmin 
-                ? `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs w-full font-medium focus:outline-none focus:border-iyte" value="${match.p1}" onchange="updateR32Player(${idx}, 1, this.value)">`
+                ? `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs w-full font-medium focus:outline-none focus:border-iyte" value="${match.p1 || ''}" onchange="updateR32Player(${idx}, 1, this.value)">`
                 : `<span class="text-xs font-bold text-slate-800 truncate block max-w-[130px]" title="${match.p1}">${match.p1}</span>`
               }
               ${isAdmin
-                ? `<input type="number" class="w-7 h-6 text-center bg-white border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${match.s1}" onchange="updateR32Score(${idx}, 1, this.value)">`
-                : `<span class="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded text-xs font-black font-mono text-slate-800">${match.s1 !== '' ? match.s1 : '-'}</span>`
+                ? `<input type="number" class="w-7 h-6 text-center bg-white border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${match.s1 !== undefined && match.s1 !== null ? match.s1 : ''}" onchange="updateR32Score(${idx}, 1, this.value)">`
+                : `<span class="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded text-xs font-black font-mono text-slate-800">${match.s1 !== '' && match.s1 !== undefined && match.s1 !== null ? match.s1 : '-'}</span>`
               }
             </div>
 
             <div class="flex items-center justify-between gap-1.5">
               ${isAdmin 
-                ? `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs w-full font-medium focus:outline-none focus:border-iyte" value="${match.p2}" onchange="updateR32Player(${idx}, 2, this.value)">`
+                ? `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs w-full font-medium focus:outline-none focus:border-iyte" value="${match.p2 || ''}" onchange="updateR32Player(${idx}, 2, this.value)">`
                 : `<span class="text-xs font-bold text-slate-800 truncate block max-w-[130px]" title="${match.p2}">${match.p2}</span>`
               }
               ${isAdmin
-                ? `<input type="number" class="w-7 h-6 text-center bg-white border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${match.s2}" onchange="updateR32Score(${idx}, 2, this.value)">`
-                : `<span class="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded text-xs font-black font-mono text-slate-800">${match.s2 !== '' ? match.s2 : '-'}</span>`
+                ? `<input type="number" class="w-7 h-6 text-center bg-white border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${match.s2 !== undefined && match.s2 !== null ? match.s2 : ''}" onchange="updateR32Score(${idx}, 2, this.value)">`
+                : `<span class="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded text-xs font-black font-mono text-slate-800">${match.s2 !== '' && match.s2 !== undefined && match.s2 !== null ? match.s2 : '-'}</span>`
               }
             </div>
           </div>
@@ -1509,23 +1558,23 @@
 
           <div class="flex items-center justify-between gap-1.5 mb-1">
             ${isAdmin 
-              ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-[11px] w-full font-medium focus:outline-none focus:border-iyte" value="${match.p1}" onchange="updateTreePlayer('${roundKey}', ${idx}, 1, this.value)">`
+              ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-[11px] w-full font-medium focus:outline-none focus:border-iyte" value="${match.p1 || ''}" onchange="updateTreePlayer('${roundKey}', ${idx}, 1, this.value)">`
               : `<span class="text-[11px] font-bold text-slate-800 truncate block max-w-[135px]" title="${match.p1}">${match.p1}</span>`
             }
             ${isAdmin
-              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-[11px] font-black focus:outline-none focus:border-iyte" value="${match.s1}" onchange="updateTreeScore('${roundKey}', ${idx}, 1, this.value)">`
-              : `<span class="w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-[10px] font-mono font-black text-slate-800">${match.s1 !== '' ? match.s1 : '-'}</span>`
+              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-[11px] font-black focus:outline-none focus:border-iyte" value="${match.s1 !== undefined && match.s1 !== null ? match.s1 : ''}" onchange="updateTreeScore('${roundKey}', ${idx}, 1, this.value)">`
+              : `<span class="w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-[10px] font-mono font-black text-slate-800">${match.s1 !== '' && match.s1 !== undefined && match.s1 !== null ? match.s1 : '-'}</span>`
             }
           </div>
 
           <div class="flex items-center justify-between gap-1.5">
             ${isAdmin 
-              ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-[11px] w-full font-medium focus:outline-none focus:border-iyte" value="${match.p2}" onchange="updateTreePlayer('${roundKey}', ${idx}, 2, this.value)">`
+              ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-[11px] w-full font-medium focus:outline-none focus:border-iyte" value="${match.p2 || ''}" onchange="updateTreePlayer('${roundKey}', ${idx}, 2, this.value)">`
               : `<span class="text-[11px] font-bold text-slate-800 truncate block max-w-[135px]" title="${match.p2}">${match.p2}</span>`
             }
             ${isAdmin
-              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-[11px] font-black focus:outline-none focus:border-iyte" value="${match.s2}" onchange="updateTreeScore('${roundKey}', ${idx}, 2, this.value)">`
-              : `<span class="w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-[10px] font-mono font-black text-slate-800">${match.s2 !== '' ? match.s2 : '-'}</span>`
+              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-[11px] font-black focus:outline-none focus:border-iyte" value="${match.s2 !== undefined && match.s2 !== null ? match.s2 : ''}" onchange="updateTreeScore('${roundKey}', ${idx}, 2, this.value)">`
+              : `<span class="w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-[10px] font-mono font-black text-slate-800">${match.s2 !== '' && match.s2 !== undefined && match.s2 !== null ? match.s2 : '-'}</span>`
             }
           </div>
         </div>
@@ -1533,97 +1582,101 @@
     }
 
     function renderFinalsTreeAndBO3() {
-      ['r16', 'r8', 'r4'].forEach(roundKey => {
-        const container = document.getElementById(`bracket-round-${roundKey.replace('r','')}`);
-        if (!container) return;
-        container.innerHTML = '';
-        db.tree[roundKey].forEach((m, idx) => {
-          container.innerHTML += makeTreeCardHTML(roundKey, m, idx);
+      if (db.tree) {
+        ['r16', 'r8', 'r4'].forEach(roundKey => {
+          const container = document.getElementById(`bracket-round-${roundKey.replace('r','')}`);
+          if (!container || !db.tree[roundKey]) return;
+          container.innerHTML = '';
+          db.tree[roundKey].forEach((m, idx) => {
+            container.innerHTML += makeTreeCardHTML(roundKey, m, idx);
+          });
         });
-      });
-
-      const nameBox1 = document.getElementById('finalistName1');
-      const nameBox2 = document.getElementById('finalistName2');
-      if (isAdmin) {
-        nameBox1.innerHTML = `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs w-full font-bold focus:outline-none focus:border-iyte" value="${db.finals.p1}" onchange="updateFinalistName(1, this.value)">`;
-        nameBox2.innerHTML = `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs w-full font-bold focus:outline-none focus:border-iyte" value="${db.finals.p2}" onchange="updateFinalistName(2, this.value)">`;
-      } else {
-        nameBox1.innerText = db.finals.p1;
-        nameBox2.innerText = db.finals.p2;
       }
 
-      const bo3Container = document.getElementById('bo3MatchesContainer');
-      bo3Container.innerHTML = '';
-
-      let wins1 = 0;
-      let wins2 = 0;
-
-      db.finals.bo3.forEach((m, idx) => {
-        if (m.s1 !== '' && m.s2 !== '') {
-          const s1 = parseInt(m.s1);
-          const s2 = parseInt(m.s2);
-          if (s1 > s2) wins1++;
-          else if (s2 > s1) wins2++;
+      if (db.finals) {
+        const nameBox1 = document.getElementById('finalistName1');
+        const nameBox2 = document.getElementById('finalistName2');
+        if (isAdmin) {
+          nameBox1.innerHTML = `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs w-full font-bold focus:outline-none focus:border-iyte" value="${db.finals.p1 || ''}" onchange="updateFinalistName(1, this.value)">`;
+          nameBox2.innerHTML = `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs w-full font-bold focus:outline-none focus:border-iyte" value="${db.finals.p2 || ''}" onchange="updateFinalistName(2, this.value)">`;
+        } else {
+          nameBox1.innerText = db.finals.p1 || '1. Finalist';
+          nameBox2.innerText = db.finals.p2 || '2. Finalist';
         }
 
-        bo3Container.innerHTML += `
-          <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between esport-card">
-            <div class="text-[10px] font-extrabold text-slate-400 mb-2 uppercase">${m.title}</div>
-            <div class="flex items-center justify-between gap-1 mb-1.5">
-              <span class="text-xs font-bold text-slate-800 truncate" title="${db.finals.p1}">${db.finals.p1}</span>
-              ${isAdmin
-                ? `<input type="number" class="w-7 h-7 text-center bg-slate-50 border border-slate-300 rounded font-bold text-xs focus:outline-none focus:border-iyte" value="${m.s1}" onchange="updateBO3Score(${idx}, 1, this.value)">`
-                : `<span class="w-6 h-6 flex items-center justify-center bg-slate-100 rounded font-black text-xs">${m.s1 !== '' ? m.s1 : '-'}</span>`
+        const bo3Container = document.getElementById('bo3MatchesContainer');
+        bo3Container.innerHTML = '';
+
+        let wins1 = 0;
+        let wins2 = 0;
+
+        (db.finals.bo3 || []).forEach((m, idx) => {
+          if (m.s1 !== '' && m.s2 !== '' && m.s1 !== null && m.s2 !== null) {
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
+            if (s1 > s2) wins1++;
+            else if (s2 > s1) wins2++;
+          }
+
+          bo3Container.innerHTML += `
+            <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between esport-card">
+              <div class="text-[10px] font-extrabold text-slate-400 mb-2 uppercase">${m.title}</div>
+              <div class="flex items-center justify-between gap-1 mb-1.5">
+                <span class="text-xs font-bold text-slate-800 truncate" title="${db.finals.p1}">${db.finals.p1}</span>
+                ${isAdmin
+                  ? `<input type="number" class="w-7 h-7 text-center bg-slate-50 border border-slate-300 rounded font-bold text-xs focus:outline-none focus:border-iyte" value="${m.s1 !== undefined && m.s1 !== null ? m.s1 : ''}" onchange="updateBO3Score(${idx}, 1, this.value)">`
+                  : `<span class="w-6 h-6 flex items-center justify-center bg-slate-100 rounded font-black text-xs">${m.s1 !== '' && m.s1 !== undefined && m.s1 !== null ? m.s1 : '-'}</span>`
+                }
+              </div>
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-xs font-bold text-slate-800 truncate" title="${db.finals.p2}">${db.finals.p2}</span>
+                ${isAdmin
+                  ? `<input type="number" class="w-7 h-7 text-center bg-slate-50 border border-slate-300 rounded font-bold text-xs focus:outline-none focus:border-iyte" value="${m.s2 !== undefined && m.s2 !== null ? m.s2 : ''}" onchange="updateBO3Score(${idx}, 2, this.value)">`
+                  : `<span class="w-6 h-6 flex items-center justify-center bg-slate-100 rounded font-black text-xs">${m.s2 !== '' && m.s2 !== undefined && m.s2 !== null ? m.s2 : '-'}</span>`
+                }
+              </div>
+            </div>
+          `;
+        });
+
+        const badge = document.getElementById('championBadge');
+        let currentChampion = null;
+
+        if (wins1 >= 2) {
+          currentChampion = db.finals.p1;
+          badge.className = "mt-3 p-2.5 text-center rounded-xl font-black text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md";
+          badge.innerHTML = `🏆 ŞAMPİYON: ${(db.finals.p1 || '').toUpperCase()}`;
+        } else if (wins2 >= 2) {
+          currentChampion = db.finals.p2;
+          badge.className = "mt-3 p-2.5 text-center rounded-xl font-black text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md";
+          badge.innerHTML = `🏆 ŞAMPİYON: ${(db.finals.p2 || '').toUpperCase()}`;
+        } else {
+          badge.className = "mt-3 p-2 text-center rounded-xl font-bold text-xs bg-slate-200/70 text-slate-600";
+          badge.innerHTML = `Seri Durumu: ${wins1} - ${wins2} (2 Galibiyet Alan Kazanır)`;
+        }
+
+        if (currentChampion && currentChampion !== previousChampion) {
+          triggerChampionConfetti();
+          previousChampion = currentChampion;
+        }
+
+        const thirdBox = document.getElementById('thirdPlaceContainer');
+        const t = db.finals.third || { p1: '3.lük 1', p2: '3.lük 2', s1: '', s2: '' };
+        thirdBox.innerHTML = `
+          <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+            <span class="text-xs font-bold text-slate-800">${isAdmin ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1 text-xs w-28 focus:outline-none focus:border-iyte" value="${t.p1 || ''}" onchange="updateThirdTeam(1, this.value)">` : t.p1}</span>
+            <div class="flex items-center gap-1">
+              ${isAdmin 
+                ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${t.s1 !== undefined && t.s1 !== null ? t.s1 : ''}" onchange="updateThirdScore(1, this.value)">
+                   <span class="text-slate-400 font-bold">:</span>
+                   <input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${t.s2 !== undefined && t.s2 !== null ? t.s2 : ''}" onchange="updateThirdScore(2, this.value)">`
+                : `<span class="font-mono font-black text-xs px-2 py-0.5 bg-slate-100 rounded">${t.s1 !== '' && t.s2 !== '' && t.s1 !== null && t.s2 !== null ? `${t.s1}-${t.s2}` : 'vs'}</span>`
               }
             </div>
-            <div class="flex items-center justify-between gap-1">
-              <span class="text-xs font-bold text-slate-800 truncate" title="${db.finals.p2}">${db.finals.p2}</span>
-              ${isAdmin
-                ? `<input type="number" class="w-7 h-7 text-center bg-slate-50 border border-slate-300 rounded font-bold text-xs focus:outline-none focus:border-iyte" value="${m.s2}" onchange="updateBO3Score(${idx}, 2, this.value)">`
-                : `<span class="w-6 h-6 flex items-center justify-center bg-slate-100 rounded font-black text-xs">${m.s2 !== '' ? m.s2 : '-'}</span>`
-              }
-            </div>
+            <span class="text-xs font-bold text-slate-800">${isAdmin ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1 text-xs w-28 focus:outline-none focus:border-iyte" value="${t.p2 || ''}" onchange="updateThirdTeam(2, this.value)">` : t.p2}</span>
           </div>
         `;
-      });
-
-      const badge = document.getElementById('championBadge');
-      let currentChampion = null;
-
-      if (wins1 >= 2) {
-        currentChampion = db.finals.p1;
-        badge.className = "mt-3 p-2.5 text-center rounded-xl font-black text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md";
-        badge.innerHTML = `🏆 ŞAMPİYON: ${db.finals.p1.toUpperCase()}`;
-      } else if (wins2 >= 2) {
-        currentChampion = db.finals.p2;
-        badge.className = "mt-3 p-2.5 text-center rounded-xl font-black text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md";
-        badge.innerHTML = `🏆 ŞAMPİYON: ${db.finals.p2.toUpperCase()}`;
-      } else {
-        badge.className = "mt-3 p-2 text-center rounded-xl font-bold text-xs bg-slate-200/70 text-slate-600";
-        badge.innerHTML = `Seri Durumu: ${wins1} - ${wins2} (2 Galibiyet Alan Kazanır)`;
       }
-
-      if (currentChampion && currentChampion !== previousChampion) {
-        triggerChampionConfetti();
-        previousChampion = currentChampion;
-      }
-
-      const thirdBox = document.getElementById('thirdPlaceContainer');
-      const t = db.finals.third;
-      thirdBox.innerHTML = `
-        <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
-          <span class="text-xs font-bold text-slate-800">${isAdmin ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1 text-xs w-28 focus:outline-none focus:border-iyte" value="${t.p1}" onchange="updateThirdTeam(1, this.value)">` : t.p1}</span>
-          <div class="flex items-center gap-1">
-            ${isAdmin 
-              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${t.s1}" onchange="updateThirdScore(1, this.value)">
-                 <span class="text-slate-400 font-bold">:</span>
-                 <input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${t.s2}" onchange="updateThirdScore(2, this.value)">`
-              : `<span class="font-mono font-black text-xs px-2 py-0.5 bg-slate-100 rounded">${t.s1 !== '' && t.s2 !== '' ? `${t.s1}-${t.s2}` : 'vs'}</span>`
-            }
-          </div>
-          <span class="text-xs font-bold text-slate-800">${isAdmin ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1 text-xs w-28 focus:outline-none focus:border-iyte" value="${t.p2}" onchange="updateThirdTeam(2, this.value)">` : t.p2}</span>
-        </div>
-      `;
     }
 
     function renderTopScorers() {
@@ -1631,16 +1684,17 @@
 
       GROUP_LETTERS.forEach(gKey => {
         const g = db.groups[gKey];
-        g.players.forEach(p => {
+        if (!g) return;
+        (g.players || []).forEach(p => {
           scorersMap[p.name] = { name: p.name, goals: 0, matches: 0, group: `Grup ${gKey}` };
         });
 
-        g.matches.forEach(m => {
+        (g.matches || []).forEach(m => {
           if (m.s1 !== null && m.s2 !== null && m.s1 !== "" && m.s2 !== "") {
             const p1Name = g.players.find(p => p.id === m.p1)?.name || m.p1;
             const p2Name = g.players.find(p => p.id === m.p2)?.name || m.p2;
-            const s1 = parseInt(m.s1) || 0;
-            const s2 = parseInt(m.s2) || 0;
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
 
             if (scorersMap[p1Name]) { scorersMap[p1Name].goals += s1; scorersMap[p1Name].matches++; }
             if (scorersMap[p2Name]) { scorersMap[p2Name].goals += s2; scorersMap[p2Name].matches++; }
@@ -1649,10 +1703,11 @@
       });
 
       const collectKnockoutGoals = (list) => {
+        if (!list) return;
         list.forEach(m => {
           if (m.s1 !== "" && m.s2 !== "" && m.s1 !== null && m.s2 !== null) {
-            const s1 = parseInt(m.s1) || 0;
-            const s2 = parseInt(m.s2) || 0;
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
             [ { p: m.p1, g: s1 }, { p: m.p2, g: s2 } ].forEach(({ p, g }) => {
               if (p && !p.startsWith('Son 32') && !p.startsWith('Grup') && !p.startsWith('ÇF') && !p.startsWith('YF')) {
                 if (!scorersMap[p]) scorersMap[p] = { name: p, goals: 0, matches: 0, group: 'Elemeler' };
@@ -1665,10 +1720,12 @@
       };
 
       collectKnockoutGoals(db.r32);
-      collectKnockoutGoals(db.tree.r16);
-      collectKnockoutGoals(db.tree.r8);
-      collectKnockoutGoals(db.tree.r4);
-      collectKnockoutGoals(db.finals.bo3);
+      if (db.tree) {
+        collectKnockoutGoals(db.tree.r16);
+        collectKnockoutGoals(db.tree.r8);
+        collectKnockoutGoals(db.tree.r4);
+      }
+      if (db.finals) collectKnockoutGoals(db.finals.bo3);
 
       const sortedScorers = Object.values(scorersMap).sort((a, b) => b.goals - a.goals || a.matches - b.matches);
 
@@ -1894,52 +1951,55 @@
       input.value = '';
     }
 
-    // Skor ve Ağaç Güncelleme Metodları
+    // ----------------------------------------------------
+    // NOKTA ATIŞI GÜNCELLEME METODLARI (SADECE İLGİLİ ALANI YAZAR)
+    // ----------------------------------------------------
     window.updateR32Player = function(idx, pNum, name) {
       if (pNum === 1) db.r32[idx].p1 = name; else db.r32[idx].p2 = name;
-      saveDB();
+      syncPathToCloud(`r32/${idx}`, db.r32[idx]);
     };
     window.updateR32Score = function(idx, sNum, score) {
       if (sNum === 1) db.r32[idx].s1 = score; else db.r32[idx].s2 = score;
-      saveDB();
+      syncPathToCloud(`r32/${idx}`, db.r32[idx]);
     };
     window.updateTreePlayer = function(roundKey, idx, pNum, name) {
       if (pNum === 1) db.tree[roundKey][idx].p1 = name; else db.tree[roundKey][idx].p2 = name;
-      saveDB();
+      syncPathToCloud(`tree/${roundKey}/${idx}`, db.tree[roundKey][idx]);
     };
     window.updateTreeScore = function(roundKey, idx, sNum, score) {
       if (sNum === 1) db.tree[roundKey][idx].s1 = score; else db.tree[roundKey][idx].s2 = score;
-      saveDB();
+      syncPathToCloud(`tree/${roundKey}/${idx}`, db.tree[roundKey][idx]);
     };
     window.updateFinalistName = function(pNum, name) {
       if (pNum === 1) db.finals.p1 = name; else db.finals.p2 = name;
-      saveDB();
+      syncPathToCloud('finals', db.finals);
     };
     window.updateBO3Score = function(idx, sNum, score) {
       if (sNum === 1) db.finals.bo3[idx].s1 = score; else db.finals.bo3[idx].s2 = score;
-      saveDB();
+      syncPathToCloud(`finals/bo3/${idx}`, db.finals.bo3[idx]);
     };
     window.updateThirdTeam = function(pNum, name) {
       if (pNum === 1) db.finals.third.p1 = name; else db.finals.third.p2 = name;
-      saveDB();
+      syncPathToCloud('finals/third', db.finals.third);
     };
     window.updateThirdScore = function(sNum, score) {
       if (sNum === 1) db.finals.third.s1 = score; else db.finals.third.s2 = score;
-      saveDB();
+      syncPathToCloud('finals/third', db.finals.third);
     };
+
+    // GRUP İÇİ GÜNCELLEMELERDE SADECE O GRUBU BULUTA GÖNDERİR
     window.updateScore = function(group, matchId, value, isP1) {
-      const val = value === '' ? null : parseInt(value);
       const match = db.groups[group].matches.find(m => m.id === matchId);
       if (match) {
-        if (isP1) match.s1 = val; else match.s2 = val;
-        saveDB();
+        if (isP1) match.s1 = value; else match.s2 = value;
+        syncPathToCloud(`groups/${group}`, db.groups[group]);
       }
     };
     window.updatePlayerName = function(group, playerId, newName) {
       const p = db.groups[group].players.find(x => x.id === playerId);
       if (p) {
         p.name = newName;
-        saveDB();
+        syncPathToCloud(`groups/${group}`, db.groups[group]);
       }
     };
 
