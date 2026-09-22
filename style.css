@@ -1,0 +1,46 @@
+    body {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      background-color: #f1f5f9;
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(128, 20, 29, 0.07) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(128, 20, 29, 0.05) 0px, transparent 50%);
+    }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .round-col { min-width: 240px; width: 240px; }
+
+    .tab-content-active {
+      animation: tabEnter 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes tabEnter {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .esport-card {
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .esport-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 25px -5px rgba(128, 20, 29, 0.12), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+      border-color: rgba(128, 20, 29, 0.35);
+    }
+
+    @keyframes crownFloat {
+      0%, 100% { transform: translateY(0) rotate(0deg); }
+      50% { transform: translateY(-4px) rotate(-3deg); }
+    }
+    .crown-float {
+      display: inline-block;
+      animation: crownFloat 2.5s ease-in-out infinite;
+    }
+
+    @keyframes highlightPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.7); }
+      50% { box-shadow: 0 0 0 6px rgba(234, 179, 8, 0.4); }
+    }
+    .highlight-card {
+      animation: highlightPulse 1.2s ease-in-out 3;
+      border-color: #eab308 !important;
+    }

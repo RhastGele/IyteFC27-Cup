@@ -1,0 +1,1601 @@
+    // ----------------------------------------------------
+    // YARDIMCI GÜVENLİ SAYI DÖNÜŞTÜRÜCÜ (NaN ÖNLEYİCİ)
+    // ----------------------------------------------------
+    function safeInt(val, fallback = 0) {
+      if (val === null || val === undefined || val === '') return fallback;
+      const parsed = parseInt(val, 10);
+      return isNaN(parsed) ? fallback : parsed;
+    }
+
+    // ----------------------------------------------------
+    // FIREBASE BAĞLANTISI (CANLI VERİTABANI, SOHBET & LOGLAR)
+    // ----------------------------------------------------
+    const firebaseConfig = {
+      apiKey: "AIzaSyDwVLSgnHf2JumSsh1ABjye3vQJz7GdysA",
+      authDomain: "iyte-futbol.firebaseapp.com",
+      databaseURL: "https://iyte-futbol-default-rtdb.firebaseio.com",
+      projectId: "iyte-futbol",
+      storageBucket: "iyte-futbol.firebasestorage.app",
+      messagingSenderId: "1002841694513",
+      appId: "1:1002841694513:web:5cd855393702bf70c51010",
+      measurementId: "G-EQN513BGFG"
+    };
+
+    let chatRef = null;
+    let auditLogRef = null;
+    let dbRef = null;
+
+    try {
+      firebase.initializeApp(firebaseConfig);
+      const rtdb = firebase.database();
+      chatRef = rtdb.ref("tournament_chat");
+      auditLogRef = rtdb.ref("user_audit_logs");
+      dbRef = rtdb.ref("tournament_data");
+    } catch(e) {
+      console.warn("Firebase bağlantı hatası:", e);
+    }
+
+    const GROUP_LETTERS = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+    let selectedGroupFilter = 'ALL';
+    let isAdmin = false;
+    let currentUserName = localStorage.getItem('iyte_chat_username') || '';
+    let chatMessages = [];
+    let previousChampion = null;
+
+    let activeShareType = null;
+    let activeShareGroup = null;
+    let activeShareDataUrl = null;
+    let activeShareBlob = null;
+
+    // Şifre: 1912
+    function toggleAdminPrompt() {
+      if (isAdmin) {
+        isAdmin = false;
+        updateAdminUI();
+      } else {
+        const pin = prompt("Yönetici Şifresini Girin:");
+        if (!pin) return;
+        if (btoa(pin.trim()) === "MTkxMg==") {
+          isAdmin = true;
+          updateAdminUI();
+        } else {
+          alert("Hatalı Şifre!");
+        }
+      }
+    }
+
+    function updateAdminUI() {
+      const btn = document.getElementById('adminBtn');
+      const icon = document.getElementById('adminLockIcon');
+      const text = document.getElementById('adminStatusText');
+
+      if (isAdmin) {
+        btn.className = "flex items-center gap-2 bg-emerald-50 text-emerald-700 border border-emerald-300 px-3.5 py-1.5 rounded-full transition text-xs font-bold shadow-xs shrink-0 order-2 sm:order-3";
+        icon.className = "fa-solid fa-lock-open text-emerald-600 text-[11px]";
+        text.innerText = "Yönetici Açık";
+      } else {
+        btn.className = "flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-1.5 rounded-full border border-slate-200 transition text-xs font-bold shrink-0 order-2 sm:order-3";
+        icon.className = "fa-solid fa-lock text-slate-500 text-[11px]";
+        text.innerText = "Yönetici";
+      }
+      renderAll();
+      renderChatUI();
+      renderChatMessages();
+    }
+
+    function triggerChampionConfetti() {
+      if (typeof confetti === 'function') {
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+        setTimeout(() => {
+          confetti({ particleCount: 80, angle: 60, spread: 55, origin: { x: 0 } });
+          confetti({ particleCount: 80, angle: 120, spread: 55, origin: { x: 1 } });
+        }, 250);
+      }
+    }
+
+    // ----------------------------------------------------
+    // TURNUVA VERİTABANI İLK DEĞERLERİ
+    // ----------------------------------------------------
+    function getFreshInitialData() {
+      const initial = {
+        groups: {},
+        r32: [],
+        tree: { r16: [], r8: [], r4: [] },
+        finals: {
+          p1: '1. Finalist',
+          p2: '2. Finalist',
+          bo3: [
+            { id: 'm1', title: '1. Karşılaşma', s1: '', s2: '' },
+            { id: 'm2', title: '2. Karşılaşma', s1: '', s2: '' },
+            { id: 'm3', title: '3. Karşılaşma (Gerekirse)', s1: '', s2: '' }
+          ],
+          third: { p1: 'Yarı Finalist 1', p2: 'Yarı Finalist 2', s1: '', s2: '' }
+        },
+        tournamentStatus: 'not_started'
+      };
+
+      GROUP_LETTERS.forEach(g => {
+        initial.groups[g] = {
+          players: [
+            { id: `${g}1`, name: `${g}1 Oyuncusu` },
+            { id: `${g}2`, name: `${g}2 Oyuncusu` },
+            { id: `${g}3`, name: `${g}3 Oyuncusu` },
+            { id: `${g}4`, name: `${g}4 Oyuncusu` }
+          ],
+          matches: [
+            { id: `${g}_m1`, p1: `${g}1`, p2: `${g}2`, s1: '', s2: '' },
+            { id: `${g}_m2`, p1: `${g}3`, p2: `${g}4`, s1: '', s2: '' },
+            { id: `${g}_m3`, p1: `${g}1`, p2: `${g}3`, s1: '', s2: '' },
+            { id: `${g}_m4`, p1: `${g}2`, p2: `${g}4`, s1: '', s2: '' },
+            { id: `${g}_m5`, p1: `${g}1`, p2: `${g}4`, s1: '', s2: '' },
+            { id: `${g}_m6`, p1: `${g}2`, p2: `${g}3`, s1: '', s2: '' }
+          ]
+        };
+      });
+
+      for(let i=1; i<=16; i++) initial.r32.push({ id:`r32_${i}`, title:`Son 32 • Eşleşme ${i}`, p1:`Oyuncu ${i}A`, p2:`Oyuncu ${i}B`, s1:'', s2:'' });
+      for(let i=1; i<=8; i++) initial.tree.r16.push({ id:`r16_${i}`, title:`Son 16 • Maç ${i}`, p1:`Son 32 Galip ${i*2-1}`, p2:`Son 32 Galip ${i*2}`, s1:'', s2:'' });
+      for(let i=1; i<=4; i++) initial.tree.r8.push({ id:`r8_${i}`, title:`ÇF #${i}`, p1:`Son 16 Galip ${i*2-1}`, p2:`Son 16 Galip ${i*2}`, s1:'', s2:'' });
+      for(let i=1; i<=2; i++) initial.tree.r4.push({ id:`r4_${i}`, title:`YF #${i}`, p1:`ÇF Galip ${i*2-1}`, p2:`ÇF Galip ${i*2}`, s1:'', s2:'' });
+
+      return initial;
+    }
+
+    let db = (() => {
+      const saved = localStorage.getItem('iyte_fc27_fast_db');
+      return saved ? JSON.parse(saved) : getFreshInitialData();
+    })();
+
+    // ----------------------------------------------------
+    // BULUT DİNLEME VE DERİN BİRLEŞTİRME (VERİ KAYBI ENGELLEYİCİ)
+    // ----------------------------------------------------
+    if (dbRef) {
+      dbRef.on('value', (snapshot) => {
+        const cloudData = snapshot.val();
+        if (cloudData) {
+          // Gelen bulut verisini yerel şablonla tam harmanla
+          if (cloudData.groups) {
+            Object.keys(cloudData.groups).forEach(gKey => {
+              if (db.groups[gKey]) {
+                if (cloudData.groups[gKey].players) db.groups[gKey].players = cloudData.groups[gKey].players;
+                if (cloudData.groups[gKey].matches) {
+                  cloudData.groups[gKey].matches.forEach((cm, mIdx) => {
+                    if (db.groups[gKey].matches[mIdx]) {
+                      db.groups[gKey].matches[mIdx].s1 = (cm.s1 !== undefined && cm.s1 !== null) ? cm.s1 : '';
+                      db.groups[gKey].matches[mIdx].s2 = (cm.s2 !== undefined && cm.s2 !== null) ? cm.s2 : '';
+                    }
+                  });
+                }
+              }
+            });
+          }
+          if (cloudData.r32) db.r32 = cloudData.r32;
+          if (cloudData.tree) db.tree = cloudData.tree;
+          if (cloudData.finals) db.finals = cloudData.finals;
+          if (cloudData.tournamentStatus) db.tournamentStatus = cloudData.tournamentStatus;
+
+          localStorage.setItem('iyte_fc27_fast_db', JSON.stringify(db));
+          renderAll();
+
+          const ind = document.getElementById('syncIndicator');
+          if (ind) ind.innerHTML = `<i class="fa-solid fa-cloud-arrow-down text-emerald-300"></i> <span>Bulut Senkronize</span>`;
+        } else {
+          // Bulut ilk açılışta boşsa tohumla
+          if (isAdmin) dbRef.set(db);
+        }
+      });
+    }
+
+    // NOKTA ATIŞI BULUT GÜNCELLEMESİ (BÜTÜN DATABASE'İN ÜSTÜNE YAZMAZ!)
+    function syncPathToCloud(path, data) {
+      localStorage.setItem('iyte_fc27_fast_db', JSON.stringify(db));
+      if (dbRef) {
+        dbRef.child(path).set(data).catch(err => console.error(`Bulut yazma hatası (${path}):`, err));
+      }
+      renderAll();
+    }
+
+    function calculateStandings(groupKey) {
+      const g = db.groups[groupKey];
+      if (!g || !g.players) return [];
+      const stats = {};
+
+      g.players.forEach(p => {
+        stats[p.id] = { id: p.id, name: p.name || 'Oyuncu', O: 0, G: 0, B: 0, M: 0, AG: 0, YG: 0, AV: 0, P: 0 };
+      });
+
+      (g.matches || []).forEach(m => {
+        if (m.s1 !== null && m.s2 !== null && m.s1 !== "" && m.s2 !== "") {
+          const s1 = safeInt(m.s1);
+          const s2 = safeInt(m.s2);
+          const p1 = stats[m.p1];
+          const p2 = stats[m.p2];
+
+          if (p1 && p2) {
+            p1.O++; p2.O++;
+            p1.AG += s1; p1.YG += s2;
+            p2.AG += s2; p2.YG += s1;
+
+            if (s1 > s2) { p1.G++; p1.P += 3; p2.M++; }
+            else if (s2 > s1) { p2.G++; p2.P += 3; p1.M++; }
+            else { p1.B++; p2.B++; p1.P += 1; p2.P += 1; }
+          }
+        }
+      });
+
+      Object.values(stats).forEach(s => s.AV = s.AG - s.YG);
+      return Object.values(stats).sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+    }
+
+    function getPlayerTournamentStats(playerName) {
+      let stats = { name: playerName, matches: 0, wins: 0, goals: 0, conceded: 0, gd: 0 };
+      if (!playerName || playerName.startsWith('Son 32') || playerName.startsWith('Oyuncu')) return stats;
+
+      GROUP_LETTERS.forEach(gKey => {
+        const g = db.groups[gKey];
+        if (!g) return;
+        (g.matches || []).forEach(m => {
+          if (m.s1 !== null && m.s2 !== null && m.s1 !== "" && m.s2 !== "") {
+            const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
+            const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
+
+            if (p1 === playerName) {
+              stats.matches++; stats.goals += s1; stats.conceded += s2;
+              if (s1 > s2) stats.wins++;
+            } else if (p2 === playerName) {
+              stats.matches++; stats.goals += s2; stats.conceded += s1;
+              if (s2 > s1) stats.wins++;
+            }
+          }
+        });
+      });
+
+      const scanKnockout = (list) => {
+        if (!list) return;
+        list.forEach(m => {
+          if (m.s1 !== "" && m.s2 !== "" && m.s1 !== null && m.s2 !== null) {
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
+            if (m.p1 === playerName) {
+              stats.matches++; stats.goals += s1; stats.conceded += s2;
+              if (s1 > s2) stats.wins++;
+            } else if (m.p2 === playerName) {
+              stats.matches++; stats.goals += s2; stats.conceded += s1;
+              if (s2 > s1) stats.wins++;
+            }
+          }
+        });
+      };
+
+      scanKnockout(db.r32);
+      if (db.tree) {
+        scanKnockout(db.tree.r16);
+        scanKnockout(db.tree.r8);
+        scanKnockout(db.tree.r4);
+      }
+      if (db.finals) scanKnockout(db.finals.bo3);
+
+      stats.gd = stats.goals - stats.conceded;
+      return stats;
+    }
+
+    function calculateMatchOfTheTournament() {
+      let bestMatch = null;
+      let highestDramaScore = -999;
+
+      const evaluate = (p1, p2, s1, s2, stageName) => {
+        if (s1 !== null && s2 !== null && s1 !== "" && s2 !== "") {
+          const score1 = safeInt(s1);
+          const score2 = safeInt(s2);
+          const totalGoals = score1 + score2;
+          const diff = Math.abs(score1 - score2);
+
+          const dramaScore = totalGoals * 2 - diff * 3;
+
+          if (dramaScore > highestDramaScore) {
+            highestDramaScore = dramaScore;
+            bestMatch = { p1, p2, s1: score1, s2: score2, stage: stageName, dramaScore };
+          }
+        }
+      };
+
+      GROUP_LETTERS.forEach(gKey => {
+        const g = db.groups[gKey];
+        if (!g) return;
+        (g.matches || []).forEach(m => {
+          const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
+          const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
+          evaluate(p1, p2, m.s1, m.s2, `Grup ${gKey}`);
+        });
+      });
+
+      if (db.r32) db.r32.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Son 32'));
+      if (db.tree) {
+        if (db.tree.r16) db.tree.r16.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Son 16'));
+        if (db.tree.r8) db.tree.r8.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Çeyrek Final'));
+        if (db.tree.r4) db.tree.r4.forEach(m => evaluate(m.p1, m.p2, m.s1, m.s2, 'Yarı Final'));
+      }
+      if (db.finals && db.finals.bo3) {
+        db.finals.bo3.forEach(m => evaluate(db.finals.p1, db.finals.p2, m.s1, m.s2, 'Büyük Final'));
+      }
+
+      const bar = document.getElementById('matchOfTheTournamentBar');
+      if (!bestMatch || highestDramaScore <= 0) {
+        bar.classList.add('hidden');
+        return;
+      }
+
+      bar.classList.remove('hidden');
+      document.getElementById('motStageBadge').innerText = bestMatch.stage;
+      document.getElementById('motMatchDetails').innerHTML = `
+        <span class="text-slate-900">${bestMatch.p1}</span> 
+        <span class="px-2 py-0.5 mx-1.5 bg-white border border-amber-300 rounded-lg text-rose-600 font-black">${bestMatch.s1} - ${bestMatch.s2}</span> 
+        <span class="text-slate-900">${bestMatch.p2}</span>
+      `;
+    }
+
+    // ----------------------------------------------------
+    // GRUP PAYLAŞIM GÖRSELİ OLUŞTURMA
+    // ----------------------------------------------------
+    window.openShareGroupModal = function(letter) {
+      activeShareType = 'group';
+      activeShareGroup = letter;
+      const modal = document.getElementById('groupShareModal');
+      document.getElementById('shareModalTitle').innerText = `Grup ${letter} • Puan Tablosu Paylaş`;
+      
+      const container = document.getElementById('shareImageContainer');
+      container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">Görsel oluşturuluyor...</span></div>`;
+      modal.classList.remove('hidden');
+
+      const standings = calculateStandings(letter);
+      const g = db.groups[letter];
+
+      const tableRowsHTML = standings.map((st, idx) => `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); height: 44px; ${idx < 2 ? 'background-color: rgba(16,185,129,0.08);' : ''}">
+          <td style="padding: 0 8px; font-weight: 900; font-size: 14px; text-align: center; color: ${idx < 2 ? '#34d399' : '#64748b'}; vertical-align: middle; line-height: 44px;">
+            ${idx + 1}
+          </td>
+          <td style="padding: 0 12px; font-weight: 800; font-size: 14px; color: #ffffff; vertical-align: middle; line-height: 44px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+            ${st.name}
+          </td>
+          <td style="padding: 0 6px; font-size: 14px; font-weight: 700; text-align: center; color: #94a3b8; vertical-align: middle; line-height: 44px;">
+            ${st.O}
+          </td>
+          <td style="padding: 0 6px; font-size: 14px; font-weight: 900; text-align: center; color: ${st.AV > 0 ? '#34d399' : st.AV < 0 ? '#f43f5e' : '#cbd5e1'}; vertical-align: middle; line-height: 44px;">
+            ${st.AV > 0 ? `+${st.AV}` : st.AV}
+          </td>
+          <td style="padding: 0 10px; font-weight: 900; font-size: 16px; text-align: center; color: #fbbf24; vertical-align: middle; line-height: 44px;">
+            ${st.P}
+          </td>
+        </tr>
+      `).join('');
+
+      const matchRowsHTML = (g.matches || []).map(m => {
+        const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
+        const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
+        const isPlayed = (m.s1 !== null && m.s2 !== null && m.s1 !== '' && m.s2 !== '');
+        const scoreText = isPlayed ? `${m.s1} - ${m.s2}` : 'vs';
+
+        return `
+          <div style="background-color: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; margin-bottom: 6px; padding: 4px 12px;">
+            <table style="width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0;">
+              <tr style="height: 38px;">
+                <td style="width: 38%; text-align: left; font-weight: 800; font-size: 13px; color: #f1f5f9; vertical-align: middle; line-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0;">
+                  ${p1}
+                </td>
+                <td style="width: 24%; text-align: center; vertical-align: middle; padding: 0;">
+                  <span style="display: inline-block; min-width: 64px; height: 26px; line-height: 26px; border-radius: 6px; font-weight: 900; font-family: monospace; font-size: 13px; text-align: center; white-space: nowrap; box-sizing: border-box; ${isPlayed ? 'background-color: #80141d; color: #ffffff; border: 1px solid #991b1b;' : 'background-color: rgba(255,255,255,0.08); color: #64748b;'}">
+                    ${scoreText}
+                  </span>
+                </td>
+                <td style="width: 38%; text-align: right; font-weight: 800; font-size: 13px; color: #f1f5f9; vertical-align: middle; line-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0;">
+                  ${p2}
+                </td>
+              </tr>
+            </table>
+          </div>
+        `;
+      }).join('');
+
+      const hiddenTpl = document.getElementById('hiddenShareTemplate');
+      hiddenTpl.innerHTML = `
+        <div style="background: radial-gradient(circle at top right, #241016 0%, #0b0f19 80%); border-radius: 28px; padding: 26px; border: 1px solid rgba(255,255,255,0.1); width: 440px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <tr style="height: 50px;">
+              <td style="width: 44px; vertical-align: middle; padding-bottom: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #80141d, #4c0b11); font-weight: 900; font-size: 18px; color: #ffffff; box-shadow: 0 4px 12px rgba(128,20,29,0.5); text-align: center; line-height: 38px;">
+                  ${letter}
+                </div>
+              </td>
+              <td style="vertical-align: middle; padding-left: 8px; padding-bottom: 12px;">
+                <div style="font-weight: 900; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; line-height: 1.2;">Grup ${letter} Tablosu</div>
+                <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; margin-top: 3px;">İYTE Futbol • FC 27 Dünya Kupası</div>
+              </td>
+              <td style="text-align: right; vertical-align: middle; padding-bottom: 12px;">
+                <span style="display: inline-block; font-weight: 900; font-size: 10px; letter-spacing: 1px; color: #fbbf24; background: rgba(251,191,36,0.12); border: 1px solid rgba(251,191,36,0.3); padding: 5px 11px; border-radius: 999px; text-transform: uppercase; line-height: 1;">CANLI</span>
+              </td>
+            </tr>
+          </table>
+
+          <div style="background-color: rgba(255,255,255,0.02); border-radius: 18px; padding: 4px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px;">
+            <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+              <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); height: 34px; font-size: 11px; text-transform: uppercase; font-weight: 800; color: #64748b; letter-spacing: 0.5px;">
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">#</th>
+                  <th style="width: 48%; text-align: left; padding-left: 12px; vertical-align: middle; line-height: 34px;">Oyuncu</th>
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">O</th>
+                  <th style="width: 14%; text-align: center; vertical-align: middle; line-height: 34px;">AV</th>
+                  <th style="width: 14%; text-align: center; vertical-align: middle; color: #fbbf24; line-height: 34px;">P</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHTML}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="background-color: rgba(255,255,255,0.02); border-radius: 18px; padding: 12px; border: 1px solid rgba(255,255,255,0.05);">
+            <div style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #64748b; margin-bottom: 8px; letter-spacing: 0.8px; line-height: 1;">Grup Karşılaşmaları</div>
+            ${matchRowsHTML}
+          </div>
+
+          <div style="margin-top: 14px; text-align: center; font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 0.4px; line-height: 1;">
+            iyte-fc-27.vercel.app • Kampüs Espor Turnuvası
+          </div>
+        </div>
+      `;
+
+      setTimeout(() => {
+        html2canvas(hiddenTpl, {
+          backgroundColor: '#0b0f19',
+          scale: 3,
+          useCORS: true,
+          logging: false
+        }).then(canvas => {
+          activeShareDataUrl = canvas.toDataURL('image/png');
+          canvas.toBlob(blob => { activeShareBlob = blob; });
+          container.innerHTML = `<img src="${activeShareDataUrl}" class="max-h-84 object-contain rounded-2xl shadow-2xl border border-slate-700" alt="Grup ${letter}">`;
+        }).catch(err => {
+          console.error("Görsel oluşturma hatası:", err);
+          container.innerHTML = `<span class="text-xs text-rose-500 py-4">Görsel oluşturulamadı.</span>`;
+        });
+      }, 100);
+    };
+
+    // ----------------------------------------------------
+    // EN İYİ 8 ÜÇÜNCÜ PAYLAŞIM GÖRSELİ OLUŞTURMA
+    // ----------------------------------------------------
+    window.openShareBest3rdModal = function() {
+      activeShareType = 'best3rd';
+      activeShareGroup = 'En-Iyi-8-Ucuncu';
+      const modal = document.getElementById('groupShareModal');
+      document.getElementById('shareModalTitle').innerText = `En İyi 8 Üçüncü • Sıralama Paylaş`;
+      
+      const container = document.getElementById('shareImageContainer');
+      container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">En İyi 3.'ler tablosu hazırlanıyor...</span></div>`;
+      modal.classList.remove('hidden');
+
+      let allThirds = [];
+      GROUP_LETTERS.forEach(letter => {
+        const standings = calculateStandings(letter);
+        if (standings.length >= 3) {
+          allThirds.push({ group: letter, ...standings[2] });
+        }
+      });
+
+      allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+
+      const tableRowsHTML = allThirds.map((st, idx) => {
+        const qualifies = idx < 8;
+        return `
+          <tr style="border-bottom: 1px solid rgba(255,255,255,0.06); height: 38px; ${qualifies ? 'background-color: rgba(16,185,129,0.08);' : ''}">
+            <td style="padding: 0 6px; font-weight: 900; font-size: 13px; text-align: center; color: ${qualifies ? '#34d399' : '#64748b'}; vertical-align: middle; line-height: 38px;">
+              ${idx + 1}
+            </td>
+            <td style="padding: 0 6px; font-weight: 800; font-size: 12px; color: #fb7185; text-align: center; vertical-align: middle; line-height: 38px;">
+              ${st.group}
+            </td>
+            <td style="padding: 0 10px; font-weight: 800; font-size: 13px; color: #ffffff; vertical-align: middle; line-height: 38px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${st.name}
+            </td>
+            <td style="padding: 0 6px; font-size: 13px; font-weight: 700; text-align: center; color: #94a3b8; vertical-align: middle; line-height: 38px;">
+              ${st.O}
+            </td>
+            <td style="padding: 0 6px; font-size: 13px; font-weight: 900; text-align: center; color: ${st.AV > 0 ? '#34d399' : st.AV < 0 ? '#f43f5e' : '#cbd5e1'}; vertical-align: middle; line-height: 38px;">
+              ${st.AV > 0 ? `+${st.AV}` : st.AV}
+            </td>
+            <td style="padding: 0 8px; font-weight: 900; font-size: 14px; text-align: center; color: #fbbf24; vertical-align: middle; line-height: 38px;">
+              ${st.P}
+            </td>
+            <td style="padding: 0 8px; text-align: right; vertical-align: middle;">
+              <span style="display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 9px; font-weight: 800; text-transform: uppercase; line-height: 1.2; ${qualifies ? 'background-color: rgba(16,185,129,0.2); color: #34d399; border: 1px solid rgba(16,185,129,0.3);' : 'background-color: rgba(255,255,255,0.06); color: #64748b;'}">
+                ${qualifies ? 'Son 32' : 'Elendi'}
+              </span>
+            </td>
+          </tr>
+        `;
+      }).join('');
+
+      const hiddenTpl = document.getElementById('hiddenShareTemplate');
+      hiddenTpl.innerHTML = `
+        <div style="background: radial-gradient(circle at top right, #241016 0%, #0b0f19 80%); border-radius: 28px; padding: 26px; border: 1px solid rgba(255,255,255,0.1); width: 440px; box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          
+          <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <tr style="height: 50px;">
+              <td style="width: 44px; vertical-align: middle; padding-bottom: 12px;">
+                <div style="width: 38px; height: 38px; border-radius: 12px; background: linear-gradient(135deg, #fbbf24, #b45309); font-weight: 900; font-size: 18px; color: #0b0f19; box-shadow: 0 4px 12px rgba(251,191,36,0.4); text-align: center; line-height: 38px;">
+                  ⭐
+                </div>
+              </td>
+              <td style="vertical-align: middle; padding-left: 8px; padding-bottom: 12px;">
+                <div style="font-weight: 900; font-size: 18px; color: #ffffff; letter-spacing: -0.3px; line-height: 1.2;">En İyi 8 Üçüncü</div>
+                <div style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.2; margin-top: 3px;">İlk 8 Sıra Son 32 Turuna Kalır</div>
+              </td>
+              <td style="text-align: right; vertical-align: middle; padding-bottom: 12px;">
+                <span style="display: inline-block; font-weight: 900; font-size: 10px; letter-spacing: 1px; color: #34d399; background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.3); padding: 5px 11px; border-radius: 999px; text-transform: uppercase; line-height: 1;">CANLI</span>
+              </td>
+            </tr>
+          </table>
+
+          <div style="background-color: rgba(255,255,255,0.02); border-radius: 18px; padding: 4px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 16px;">
+            <table style="width: 100%; border-collapse: collapse; table-layout: fixed;">
+              <thead>
+                <tr style="border-bottom: 1px solid rgba(255,255,255,0.08); height: 34px; font-size: 10px; text-transform: uppercase; font-weight: 800; color: #64748b; letter-spacing: 0.5px;">
+                  <th style="width: 9%; text-align: center; vertical-align: middle; line-height: 34px;">#</th>
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">Grup</th>
+                  <th style="width: 38%; text-align: left; padding-left: 10px; vertical-align: middle; line-height: 34px;">Oyuncu</th>
+                  <th style="width: 9%; text-align: center; vertical-align: middle; line-height: 34px;">O</th>
+                  <th style="width: 12%; text-align: center; vertical-align: middle; line-height: 34px;">AV</th>
+                  <th style="width: 10%; text-align: center; vertical-align: middle; color: #fbbf24; line-height: 34px;">P</th>
+                  <th style="width: 18%; text-align: right; padding-right: 6px; vertical-align: middle; line-height: 34px;">Bilet</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHTML}
+              </tbody>
+            </table>
+          </div>
+
+          <div style="margin-top: 14px; text-align: center; font-size: 10px; font-weight: 700; color: #475569; letter-spacing: 0.4px; line-height: 1;">
+            iyte-fc-27.vercel.app • Kampüs Espor Turnuvası
+          </div>
+        </div>
+      `;
+
+      setTimeout(() => {
+        html2canvas(hiddenTpl, {
+          backgroundColor: '#0b0f19',
+          scale: 3,
+          useCORS: true,
+          logging: false
+        }).then(canvas => {
+          activeShareDataUrl = canvas.toDataURL('image/png');
+          canvas.toBlob(blob => { activeShareBlob = blob; });
+          container.innerHTML = `<img src="${activeShareDataUrl}" class="max-h-84 object-contain rounded-2xl shadow-2xl border border-slate-700" alt="En İyi 8 Üçüncü">`;
+        }).catch(err => {
+          console.error("Görsel oluşturma hatası:", err);
+          container.innerHTML = `<span class="text-xs text-rose-500 py-4">Görsel oluşturulamadı.</span>`;
+        });
+      }, 100);
+    };
+
+    window.closeShareModal = function() {
+      document.getElementById('groupShareModal').classList.add('hidden');
+    };
+
+    window.downloadShareImage = function() {
+      if (!activeShareDataUrl) return;
+      const link = document.createElement('a');
+      link.download = `IYTE-FC27-${activeShareGroup}.png`;
+      link.href = activeShareDataUrl;
+      link.click();
+    };
+
+    window.shareToWhatsApp = function() {
+      let text = '';
+      if (activeShareType === 'best3rd') {
+        text = `🏆 *İYTE FC 27 Dünya Kupası • En İyi 8 Üçüncü Sıralaması*\n\n`;
+        let allThirds = [];
+        GROUP_LETTERS.forEach(letter => {
+          const standings = calculateStandings(letter);
+          if (standings.length >= 3) allThirds.push({ group: letter, ...standings[2] });
+        });
+        allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+        allThirds.slice(0, 8).forEach((s, idx) => {
+          text += `${idx + 1}. [Grup ${s.group}] ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
+        });
+      } else {
+        if (!activeShareGroup) return;
+        const standings = calculateStandings(activeShareGroup);
+        text = `🏆 *İYTE FC 27 Dünya Kupası • Grup ${activeShareGroup} Puan Durumu*\n\n`;
+        standings.forEach((s, idx) => {
+          text += `${idx + 1}. ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
+        });
+      }
+      text += `\nCanlı takip: ${window.location.href}`;
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+    };
+
+    window.shareToX = function() {
+      let text = '';
+      if (activeShareType === 'best3rd') {
+        text = `İYTE FC 27 Turnuvası En İyi 8 Üçüncü tablosu güncellendi! Son 32 heyecanı başlıyor 🔥`;
+      } else {
+        if (!activeShareGroup) return;
+        const standings = calculateStandings(activeShareGroup);
+        const leader = standings[0] ? standings[0].name : '';
+        text = `İYTE FC 27 Turnuvası Grup ${activeShareGroup} sonuçları ve canlı puan durumu! Lider: ${leader} 🔥`;
+      }
+      window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(window.location.href)}`, '_blank');
+    };
+
+    window.shareToInstagramOrNative = function() {
+      if (navigator.share && activeShareBlob) {
+        const file = new File([activeShareBlob], `IYTE-FC27-${activeShareGroup}.png`, { type: 'image/png' });
+        navigator.share({
+          files: [file],
+          title: `İYTE FC 27 Turnuvası - ${activeShareType === 'best3rd' ? 'En İyi 8 Üçüncü' : `Grup ${activeShareGroup}`}`,
+          text: `Canlı Turnuva Tablosu!`
+        }).catch(e => console.log("Paylaşım iptal edildi:", e));
+      } else {
+        downloadShareImage();
+        alert("Görsel cihazınıza indirildi! Instagram Story'ye girerek galerinizden doğrudan paylaşabilirsiniz.");
+      }
+    };
+
+    // ----------------------------------------------------
+    // H2H MODAL
+    // ----------------------------------------------------
+    window.openH2HModal = function(p1, p2, title) {
+      const modal = document.getElementById('h2hModal');
+      document.getElementById('h2hModalTitle').innerText = title || "Karşılaşma Analizi";
+
+      const st1 = getPlayerTournamentStats(p1);
+      const st2 = getPlayerTournamentStats(p2);
+
+      const winRate1 = st1.matches > 0 ? Math.round((st1.wins / st1.matches) * 100) : 0;
+      const winRate2 = st2.matches > 0 ? Math.round((st2.wins / st2.matches) * 100) : 0;
+
+      const container = document.getElementById('h2hCardsContainer');
+      container.innerHTML = `
+        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-center">
+          <div class="w-10 h-10 mx-auto rounded-full bg-iyte/10 text-iyte font-black flex items-center justify-center text-xs mb-1.5">
+            ${p1.charAt(0).toUpperCase()}
+          </div>
+          <h5 class="font-black text-xs text-slate-900 truncate" title="${p1}">${p1}</h5>
+          
+          <div class="mt-3 space-y-2 text-[11px] font-bold">
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Atılan Gol:</span>
+              <span class="text-slate-900 font-black">${st1.goals}</span>
+            </div>
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Yenilen Gol:</span>
+              <span class="text-slate-900">${st1.conceded}</span>
+            </div>
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Averaj:</span>
+              <span class="${st1.gd >= 0 ? 'text-emerald-600' : 'text-rose-600'} font-black">${st1.gd > 0 ? '+' : ''}${st1.gd}</span>
+            </div>
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Galibiyet %:</span>
+              <span class="text-amber-600 font-black">%${winRate1}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-center">
+          <div class="w-10 h-10 mx-auto rounded-full bg-slate-200 text-slate-700 font-black flex items-center justify-center text-xs mb-1.5">
+            ${p2.charAt(0).toUpperCase()}
+          </div>
+          <h5 class="font-black text-xs text-slate-900 truncate" title="${p2}">${p2}</h5>
+
+          <div class="mt-3 space-y-2 text-[11px] font-bold">
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Atılan Gol:</span>
+              <span class="text-slate-900 font-black">${st2.goals}</span>
+            </div>
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Yenilen Gol:</span>
+              <span class="text-slate-900">${st2.conceded}</span>
+            </div>
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Averaj:</span>
+              <span class="${st2.gd >= 0 ? 'text-emerald-600' : 'text-rose-600'} font-black">${st2.gd > 0 ? '+' : ''}${st2.gd}</span>
+            </div>
+            <div class="bg-white p-1.5 rounded-lg border border-slate-100 flex justify-between">
+              <span class="text-slate-400">Galibiyet %:</span>
+              <span class="text-amber-600 font-black">%${winRate2}</span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      modal.classList.remove('hidden');
+    };
+
+    window.closeH2HModal = function() {
+      document.getElementById('h2hModal').classList.add('hidden');
+    };
+
+    // ----------------------------------------------------
+    // OYUNCU ARAMA MOTORU
+    // ----------------------------------------------------
+    window.handlePlayerSearch = function(query) {
+      const q = query.trim().toLowerCase();
+      const dropdown = document.getElementById('searchResultsDropdown');
+
+      if (!q || q.length < 2) {
+        dropdown.classList.add('hidden');
+        dropdown.innerHTML = '';
+        return;
+      }
+
+      let matchesFound = [];
+
+      GROUP_LETTERS.forEach(gKey => {
+        const g = db.groups[gKey];
+        if (!g || !g.players) return;
+        g.players.forEach(p => {
+          if (p.name && p.name.toLowerCase().includes(q)) {
+            matchesFound.push({
+              name: p.name,
+              type: 'Grup',
+              detail: `Grup ${gKey}`,
+              tab: 'groups',
+              filter: gKey,
+              targetId: `group-card-${gKey}`
+            });
+          }
+        });
+      });
+
+      if (db.r32) {
+        db.r32.forEach((m, idx) => {
+          if ((m.p1 && m.p1.toLowerCase().includes(q)) || (m.p2 && m.p2.toLowerCase().includes(q))) {
+            const matchedName = (m.p1 && m.p1.toLowerCase().includes(q)) ? m.p1 : m.p2;
+            matchesFound.push({
+              name: matchedName,
+              type: 'Son 32',
+              detail: m.title,
+              tab: 'round32',
+              targetId: `r32-card-${idx}`
+            });
+          }
+        });
+      }
+
+      if (db.tree) {
+        ['r16', 'r8', 'r4'].forEach(roundKey => {
+          if (!db.tree[roundKey]) return;
+          db.tree[roundKey].forEach((m, idx) => {
+            if ((m.p1 && m.p1.toLowerCase().includes(q)) || (m.p2 && m.p2.toLowerCase().includes(q))) {
+              const matchedName = (m.p1 && m.p1.toLowerCase().includes(q)) ? m.p1 : m.p2;
+              const roundTitle = roundKey === 'r16' ? 'Son 16' : roundKey === 'r8' ? 'Çeyrek Final' : 'Yarı Final';
+              matchesFound.push({
+                name: matchedName,
+                type: 'Eleme Ağacı',
+                detail: `${roundTitle} • ${m.title}`,
+                tab: 'finalsTree',
+                targetId: `tree-card-${roundKey}-${idx}`
+              });
+            }
+          });
+        });
+      }
+
+      if (matchesFound.length === 0) {
+        dropdown.innerHTML = `<div class="p-2 text-center text-slate-400">Eşleşen oyuncu bulunamadı.</div>`;
+        dropdown.classList.remove('hidden');
+        return;
+      }
+
+      dropdown.innerHTML = matchesFound.map(item => `
+        <div onclick="navigateToSearchResult('${item.tab}', '${item.filter || ''}', '${item.targetId}')" class="p-2 hover:bg-slate-50 rounded-xl cursor-pointer flex items-center justify-between border-b border-slate-100 last:border-0 transition">
+          <div class="truncate">
+            <span class="font-extrabold text-slate-800">${item.name}</span>
+            <span class="text-[10px] text-slate-400 block">${item.detail}</span>
+          </div>
+          <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">
+            ${item.type}
+          </span>
+        </div>
+      `).join('');
+
+      dropdown.classList.remove('hidden');
+    };
+
+    window.navigateToSearchResult = function(tabName, groupFilter, elementId) {
+      document.getElementById('searchResultsDropdown').classList.add('hidden');
+      document.getElementById('playerSearchInput').value = '';
+
+      switchTab(tabName);
+
+      if (tabName === 'groups' && groupFilter) {
+        setGroupFilter(groupFilter);
+      }
+
+      setTimeout(() => {
+        const el = document.getElementById(elementId);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          el.classList.add('highlight-card');
+          setTimeout(() => el.classList.remove('highlight-card'), 3600);
+        }
+      }, 150);
+    };
+
+    document.addEventListener('click', (e) => {
+      const searchBox = document.getElementById('playerSearchInput');
+      const dropdown = document.getElementById('searchResultsDropdown');
+      if (searchBox && dropdown && !searchBox.contains(e.target) && !dropdown.contains(e.target)) {
+        dropdown.classList.add('hidden');
+      }
+    });
+
+    function renderFilterBar() {
+      const bar = document.getElementById('groupFilterBar');
+      let html = `
+        <button onclick="setGroupFilter('ALL')" class="px-3.5 py-1 rounded-full text-xs font-bold transition-all whitespace-nowrap active:scale-95 ${selectedGroupFilter === 'ALL' ? 'bg-iyte text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'}">
+          Tümü (12)
+        </button>
+      `;
+      GROUP_LETTERS.forEach(g => {
+        html += `
+          <button onclick="setGroupFilter('${g}')" class="px-3 py-1 rounded-full text-xs font-bold transition-all whitespace-nowrap active:scale-95 ${selectedGroupFilter === g ? 'bg-iyte text-white shadow-xs' : 'bg-white text-slate-600 border border-slate-200 hover:border-slate-300'}">
+            ${g}
+          </button>
+        `;
+      });
+      bar.innerHTML = html;
+    }
+
+    window.setGroupFilter = function(filter) {
+      selectedGroupFilter = filter;
+      renderFilterBar();
+      renderGroups();
+    };
+
+    function renderGroups() {
+      const container = document.getElementById('groupsContainer');
+      container.innerHTML = '';
+
+      const lettersToRender = selectedGroupFilter === 'ALL' ? GROUP_LETTERS : [selectedGroupFilter];
+
+      lettersToRender.forEach(letter => {
+        const standings = calculateStandings(letter);
+        const g = db.groups[letter];
+        if (!g) return;
+
+        let tableRows = standings.map((st, idx) => `
+          <tr class="${idx < 2 ? 'bg-emerald-50/60 font-semibold' : ''} transition-colors">
+            <td class="py-2 px-3 text-[11px] font-bold ${idx < 2 ? 'text-emerald-700' : 'text-slate-400'}">${idx + 1}</td>
+            <td class="py-2 px-2 truncate max-w-[120px]">
+              ${isAdmin 
+                ? `<input type="text" class="bg-white border border-slate-300 rounded px-1.5 py-0.5 text-xs w-full text-slate-800 focus:outline-none focus:border-iyte" value="${st.name}" onchange="updatePlayerName('${letter}', '${st.id}', this.value)">`
+                : `<span class="text-xs ${idx < 2 ? 'text-slate-900 font-bold' : 'text-slate-700'}">${st.name}</span>`}
+            </td>
+            <td class="py-2 px-1 text-center text-xs text-slate-600">${st.O}</td>
+            <td class="py-2 px-1 text-center text-xs font-bold ${st.AV > 0 ? 'text-emerald-600' : st.AV < 0 ? 'text-rose-500' : 'text-slate-500'}">${st.AV}</td>
+            <td class="py-2 px-2 text-center text-xs font-black text-slate-900">${st.P}</td>
+          </tr>
+        `).join('');
+
+        let matchRows = (g.matches || []).map(m => {
+          const p1 = g.players.find(p => p.id === m.p1)?.name || m.p1;
+          const p2 = g.players.find(p => p.id === m.p2)?.name || m.p2;
+
+          return `
+            <div class="flex items-center justify-between py-1.5 border-b border-slate-100 last:border-0 text-xs">
+              <span class="truncate w-5/12 text-slate-700 font-medium text-left" title="${p1}">${p1}</span>
+              <div class="flex items-center gap-1 justify-center w-2/12">
+                ${isAdmin
+                  ? `<input type="number" min="0" max="25" class="w-6 h-6 text-center bg-white border border-slate-300 rounded font-bold text-slate-800 focus:outline-none focus:border-iyte" value="${m.s1 !== undefined && m.s1 !== null ? m.s1 : ''}" onchange="updateScore('${letter}', '${m.id}', this.value, true)">
+                     <span class="text-slate-400 font-bold">:</span>
+                     <input type="number" min="0" max="25" class="w-6 h-6 text-center bg-white border border-slate-300 rounded font-bold text-slate-800 focus:outline-none focus:border-iyte" value="${m.s2 !== undefined && m.s2 !== null ? m.s2 : ''}" onchange="updateScore('${letter}', '${m.id}', this.value, false)">`
+                  : `<span class="px-2 py-0.5 rounded font-mono font-bold text-[11px] ${m.s1 !== '' && m.s2 !== '' && m.s1 !== null && m.s2 !== null ? 'bg-slate-100 text-slate-900 shadow-2xs' : 'text-slate-400'}">${m.s1 !== '' && m.s2 !== '' && m.s1 !== null && m.s2 !== null ? `${m.s1}-${m.s2}` : 'vs'}</span>`
+                }
+              </div>
+              <span class="truncate w-5/12 text-slate-700 font-medium text-right" title="${p2}">${p2}</span>
+            </div>
+          `;
+        }).join('');
+
+        container.innerHTML += `
+          <div id="group-card-${letter}" class="bg-white rounded-3xl p-4 border border-slate-200/80 shadow-sm esport-card flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-100">
+                <div class="flex items-center gap-2">
+                  <span class="w-6 h-6 rounded-lg bg-iyte/10 text-iyte flex items-center justify-center font-black text-xs">
+                    ${letter}
+                  </span>
+                  <h4 class="font-extrabold text-sm text-slate-900">Grup ${letter}</h4>
+                </div>
+                
+                <div class="flex items-center gap-1.5">
+                  <button onclick="openShareGroupModal('${letter}')" title="Puan Durumunu Paylaş" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-600 transition text-[11px] font-bold">
+                    <i class="fa-solid fa-share-nodes text-[10px]"></i>
+                    <span>Paylaş</span>
+                  </button>
+                </div>
+              </div>
+
+              <table class="w-full text-left text-xs mb-3">
+                <thead class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-100">
+                  <tr>
+                    <th class="py-1 px-3">#</th>
+                    <th class="py-1 px-2">Oyuncu</th>
+                    <th class="py-1 px-1 text-center">O</th>
+                    <th class="py-1 px-1 text-center">AV</th>
+                    <th class="py-1 px-2 text-center">P</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${tableRows}
+                </tbody>
+              </table>
+            </div>
+
+            <div class="bg-slate-50/80 rounded-2xl p-2.5 border border-slate-100 mt-1">
+              <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Maç Sonuçları</div>
+              ${matchRows}
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function renderBest3rd() {
+      const tbody = document.getElementById('best3rdTableBody');
+      tbody.innerHTML = '';
+
+      let allThirds = [];
+      GROUP_LETTERS.forEach(letter => {
+        const standings = calculateStandings(letter);
+        if (standings.length >= 3) {
+          allThirds.push({ group: letter, ...standings[2] });
+        }
+      });
+
+      allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+
+      allThirds.forEach((st, idx) => {
+        const qualifies = idx < 8;
+        tbody.innerHTML += `
+          <tr class="${qualifies ? 'bg-emerald-50/40' : ''} transition-colors">
+            <td class="py-2.5 px-3 font-bold ${qualifies ? 'text-emerald-700' : 'text-slate-400'}">${idx + 1}</td>
+            <td class="py-2.5 px-2 font-bold text-iyte">Grup ${st.group}</td>
+            <td class="py-2.5 px-3 font-semibold text-slate-900">${st.name}</td>
+            <td class="py-2.5 px-2 text-center text-slate-600">${st.O}</td>
+            <td class="py-2.5 px-2 text-center text-slate-600">${st.AG}</td>
+            <td class="py-2.5 px-2 text-center font-bold ${st.AV > 0 ? 'text-emerald-600' : st.AV < 0 ? 'text-rose-500' : 'text-slate-500'}">${st.AV}</td>
+            <td class="py-2.5 px-2 text-center font-black text-slate-900">${st.P}</td>
+            <td class="py-2.5 px-3 text-right">
+              <span class="inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${qualifies ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}">
+                ${qualifies ? 'Son 32 Bilet' : 'Elendi'}
+              </span>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    function renderRound32Grid() {
+      const container = document.getElementById('round32Grid');
+      container.innerHTML = '';
+
+      if (!db.r32) return;
+      db.r32.forEach((match, idx) => {
+        container.innerHTML += `
+          <div id="r32-card-${idx}" class="bg-slate-50/80 border border-slate-200 rounded-2xl p-3 flex flex-col justify-between esport-card">
+            <div class="text-[10px] font-bold text-slate-500 border-b border-slate-200 pb-1 mb-2 flex justify-between items-center">
+              <span class="text-iyte font-bold">${match.title}</span>
+              <button onclick="openH2HModal('${match.p1}', '${match.p2}', '${match.title} Analizi')" title="H2H Karşılaştır" class="text-slate-400 hover:text-iyte transition text-[11px]">
+                ⚔️
+              </button>
+            </div>
+
+            <div class="flex items-center justify-between gap-1.5 mb-1.5">
+              ${isAdmin 
+                ? `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs w-full font-medium focus:outline-none focus:border-iyte" value="${match.p1 || ''}" onchange="updateR32Player(${idx}, 1, this.value)">`
+                : `<span class="text-xs font-bold text-slate-800 truncate block max-w-[130px]" title="${match.p1}">${match.p1}</span>`
+              }
+              ${isAdmin
+                ? `<input type="number" class="w-7 h-6 text-center bg-white border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${match.s1 !== undefined && match.s1 !== null ? match.s1 : ''}" onchange="updateR32Score(${idx}, 1, this.value)">`
+                : `<span class="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded text-xs font-black font-mono text-slate-800">${match.s1 !== '' && match.s1 !== undefined && match.s1 !== null ? match.s1 : '-'}</span>`
+              }
+            </div>
+
+            <div class="flex items-center justify-between gap-1.5">
+              ${isAdmin 
+                ? `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-0.5 text-xs w-full font-medium focus:outline-none focus:border-iyte" value="${match.p2 || ''}" onchange="updateR32Player(${idx}, 2, this.value)">`
+                : `<span class="text-xs font-bold text-slate-800 truncate block max-w-[130px]" title="${match.p2}">${match.p2}</span>`
+              }
+              ${isAdmin
+                ? `<input type="number" class="w-7 h-6 text-center bg-white border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${match.s2 !== undefined && match.s2 !== null ? match.s2 : ''}" onchange="updateR32Score(${idx}, 2, this.value)">`
+                : `<span class="w-6 h-6 flex items-center justify-center bg-white border border-slate-200 rounded text-xs font-black font-mono text-slate-800">${match.s2 !== '' && match.s2 !== undefined && match.s2 !== null ? match.s2 : '-'}</span>`
+              }
+            </div>
+          </div>
+        `;
+      });
+    }
+
+    function makeTreeCardHTML(roundKey, match, idx) {
+      return `
+        <div id="tree-card-${roundKey}-${idx}" class="bg-white border border-slate-200 rounded-xl p-2.5 shadow-xs flex flex-col justify-between esport-card">
+          <div class="text-[9px] font-extrabold text-slate-400 uppercase border-b border-slate-100 pb-1 mb-1.5 flex justify-between items-center">
+            <span>${match.title}</span>
+            <button onclick="openH2HModal('${match.p1}', '${match.p2}', '${match.title} Analizi')" title="H2H Kıyasla" class="text-slate-400 hover:text-iyte transition">
+              ⚔️
+            </button>
+          </div>
+
+          <div class="flex items-center justify-between gap-1.5 mb-1">
+            ${isAdmin 
+              ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-[11px] w-full font-medium focus:outline-none focus:border-iyte" value="${match.p1 || ''}" onchange="updateTreePlayer('${roundKey}', ${idx}, 1, this.value)">`
+              : `<span class="text-[11px] font-bold text-slate-800 truncate block max-w-[135px]" title="${match.p1}">${match.p1}</span>`
+            }
+            ${isAdmin
+              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-[11px] font-black focus:outline-none focus:border-iyte" value="${match.s1 !== undefined && match.s1 !== null ? match.s1 : ''}" onchange="updateTreeScore('${roundKey}', ${idx}, 1, this.value)">`
+              : `<span class="w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-[10px] font-mono font-black text-slate-800">${match.s1 !== '' && match.s1 !== undefined && match.s1 !== null ? match.s1 : '-'}</span>`
+            }
+          </div>
+
+          <div class="flex items-center justify-between gap-1.5">
+            ${isAdmin 
+              ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1.5 py-0.5 text-[11px] w-full font-medium focus:outline-none focus:border-iyte" value="${match.p2 || ''}" onchange="updateTreePlayer('${roundKey}', ${idx}, 2, this.value)">`
+              : `<span class="text-[11px] font-bold text-slate-800 truncate block max-w-[135px]" title="${match.p2}">${match.p2}</span>`
+            }
+            ${isAdmin
+              ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-[11px] font-black focus:outline-none focus:border-iyte" value="${match.s2 !== undefined && match.s2 !== null ? match.s2 : ''}" onchange="updateTreeScore('${roundKey}', ${idx}, 2, this.value)">`
+              : `<span class="w-5 h-5 flex items-center justify-center bg-slate-100 rounded text-[10px] font-mono font-black text-slate-800">${match.s2 !== '' && match.s2 !== undefined && match.s2 !== null ? match.s2 : '-'}</span>`
+            }
+          </div>
+        </div>
+      `;
+    }
+
+    function renderFinalsTreeAndBO3() {
+      if (db.tree) {
+        ['r16', 'r8', 'r4'].forEach(roundKey => {
+          const container = document.getElementById(`bracket-round-${roundKey.replace('r','')}`);
+          if (!container || !db.tree[roundKey]) return;
+          container.innerHTML = '';
+          db.tree[roundKey].forEach((m, idx) => {
+            container.innerHTML += makeTreeCardHTML(roundKey, m, idx);
+          });
+        });
+      }
+
+      if (db.finals) {
+        const nameBox1 = document.getElementById('finalistName1');
+        const nameBox2 = document.getElementById('finalistName2');
+        if (isAdmin) {
+          nameBox1.innerHTML = `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs w-full font-bold focus:outline-none focus:border-iyte" value="${db.finals.p1 || ''}" onchange="updateFinalistName(1, this.value)">`;
+          nameBox2.innerHTML = `<input type="text" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs w-full font-bold focus:outline-none focus:border-iyte" value="${db.finals.p2 || ''}" onchange="updateFinalistName(2, this.value)">`;
+        } else {
+          nameBox1.innerText = db.finals.p1 || '1. Finalist';
+          nameBox2.innerText = db.finals.p2 || '2. Finalist';
+        }
+
+        const bo3Container = document.getElementById('bo3MatchesContainer');
+        bo3Container.innerHTML = '';
+
+        let wins1 = 0;
+        let wins2 = 0;
+
+        (db.finals.bo3 || []).forEach((m, idx) => {
+          if (m.s1 !== '' && m.s2 !== '' && m.s1 !== null && m.s2 !== null) {
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
+            if (s1 > s2) wins1++;
+            else if (s2 > s1) wins2++;
+          }
+
+          bo3Container.innerHTML += `
+            <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between esport-card">
+              <div class="text-[10px] font-extrabold text-slate-400 mb-2 uppercase">${m.title}</div>
+              <div class="flex items-center justify-between gap-1 mb-1.5">
+                <span class="text-xs font-bold text-slate-800 truncate" title="${db.finals.p1}">${db.finals.p1}</span>
+                ${isAdmin
+                  ? `<input type="number" class="w-7 h-7 text-center bg-slate-50 border border-slate-300 rounded font-bold text-xs focus:outline-none focus:border-iyte" value="${m.s1 !== undefined && m.s1 !== null ? m.s1 : ''}" onchange="updateBO3Score(${idx}, 1, this.value)">`
+                  : `<span class="w-6 h-6 flex items-center justify-center bg-slate-100 rounded font-black text-xs">${m.s1 !== '' && m.s1 !== undefined && m.s1 !== null ? m.s1 : '-'}</span>`
+                }
+              </div>
+              <div class="flex items-center justify-between gap-1">
+                <span class="text-xs font-bold text-slate-800 truncate" title="${db.finals.p2}">${db.finals.p2}</span>
+                ${isAdmin
+                  ? `<input type="number" class="w-7 h-7 text-center bg-slate-50 border border-slate-300 rounded font-bold text-xs focus:outline-none focus:border-iyte" value="${m.s2 !== undefined && m.s2 !== null ? m.s2 : ''}" onchange="updateBO3Score(${idx}, 2, this.value)">`
+                  : `<span class="w-6 h-6 flex items-center justify-center bg-slate-100 rounded font-black text-xs">${m.s2 !== '' && m.s2 !== undefined && m.s2 !== null ? m.s2 : '-'}</span>`
+                }
+              </div>
+            </div>
+          `;
+        });
+
+        const badge = document.getElementById('championBadge');
+        let currentChampion = null;
+
+        if (wins1 >= 2) {
+          currentChampion = db.finals.p1;
+          badge.className = "mt-3 p-2.5 text-center rounded-xl font-black text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md";
+          badge.innerHTML = `🏆 ŞAMPİYON: ${(db.finals.p1 || '').toUpperCase()}`;
+        } else if (wins2 >= 2) {
+          currentChampion = db.finals.p2;
+          badge.className = "mt-3 p-2.5 text-center rounded-xl font-black text-xs bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-md";
+          badge.innerHTML = `🏆 ŞAMPİYON: ${(db.finals.p2 || '').toUpperCase()}`;
+        } else {
+          badge.className = "mt-3 p-2 text-center rounded-xl font-bold text-xs bg-slate-200/70 text-slate-600";
+          badge.innerHTML = `Seri Durumu: ${wins1} - ${wins2} (2 Galibiyet Alan Kazanır)`;
+        }
+
+        if (currentChampion && currentChampion !== previousChampion) {
+          triggerChampionConfetti();
+          previousChampion = currentChampion;
+        }
+
+        const thirdBox = document.getElementById('thirdPlaceContainer');
+        const t = db.finals.third || { p1: '3.lük 1', p2: '3.lük 2', s1: '', s2: '' };
+        thirdBox.innerHTML = `
+          <div class="flex items-center gap-2 bg-white px-3 py-1.5 rounded-xl border border-slate-200">
+            <span class="text-xs font-bold text-slate-800">${isAdmin ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1 text-xs w-28 focus:outline-none focus:border-iyte" value="${t.p1 || ''}" onchange="updateThirdTeam(1, this.value)">` : t.p1}</span>
+            <div class="flex items-center gap-1">
+              ${isAdmin 
+                ? `<input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${t.s1 !== undefined && t.s1 !== null ? t.s1 : ''}" onchange="updateThirdScore(1, this.value)">
+                   <span class="text-slate-400 font-bold">:</span>
+                   <input type="number" class="w-6 h-6 text-center bg-slate-50 border border-slate-300 rounded text-xs font-bold focus:outline-none focus:border-iyte" value="${t.s2 !== undefined && t.s2 !== null ? t.s2 : ''}" onchange="updateThirdScore(2, this.value)">`
+                : `<span class="font-mono font-black text-xs px-2 py-0.5 bg-slate-100 rounded">${t.s1 !== '' && t.s2 !== '' && t.s1 !== null && t.s2 !== null ? `${t.s1}-${t.s2}` : 'vs'}</span>`
+              }
+            </div>
+            <span class="text-xs font-bold text-slate-800">${isAdmin ? `<input type="text" class="bg-slate-50 border border-slate-300 rounded px-1 text-xs w-28 focus:outline-none focus:border-iyte" value="${t.p2 || ''}" onchange="updateThirdTeam(2, this.value)">` : t.p2}</span>
+          </div>
+        `;
+      }
+    }
+
+    function renderTopScorers() {
+      const scorersMap = {};
+
+      GROUP_LETTERS.forEach(gKey => {
+        const g = db.groups[gKey];
+        if (!g) return;
+        (g.players || []).forEach(p => {
+          scorersMap[p.name] = { name: p.name, goals: 0, matches: 0, group: `Grup ${gKey}` };
+        });
+
+        (g.matches || []).forEach(m => {
+          if (m.s1 !== null && m.s2 !== null && m.s1 !== "" && m.s2 !== "") {
+            const p1Name = g.players.find(p => p.id === m.p1)?.name || m.p1;
+            const p2Name = g.players.find(p => p.id === m.p2)?.name || m.p2;
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
+
+            if (scorersMap[p1Name]) { scorersMap[p1Name].goals += s1; scorersMap[p1Name].matches++; }
+            if (scorersMap[p2Name]) { scorersMap[p2Name].goals += s2; scorersMap[p2Name].matches++; }
+          }
+        });
+      });
+
+      const collectKnockoutGoals = (list) => {
+        if (!list) return;
+        list.forEach(m => {
+          if (m.s1 !== "" && m.s2 !== "" && m.s1 !== null && m.s2 !== null) {
+            const s1 = safeInt(m.s1);
+            const s2 = safeInt(m.s2);
+            [ { p: m.p1, g: s1 }, { p: m.p2, g: s2 } ].forEach(({ p, g }) => {
+              if (p && !p.startsWith('Son 32') && !p.startsWith('Grup') && !p.startsWith('ÇF') && !p.startsWith('YF')) {
+                if (!scorersMap[p]) scorersMap[p] = { name: p, goals: 0, matches: 0, group: 'Elemeler' };
+                scorersMap[p].goals += g;
+                scorersMap[p].matches++;
+              }
+            });
+          }
+        });
+      };
+
+      collectKnockoutGoals(db.r32);
+      if (db.tree) {
+        collectKnockoutGoals(db.tree.r16);
+        collectKnockoutGoals(db.tree.r8);
+        collectKnockoutGoals(db.tree.r4);
+      }
+      if (db.finals) collectKnockoutGoals(db.finals.bo3);
+
+      const sortedScorers = Object.values(scorersMap).sort((a, b) => b.goals - a.goals || a.matches - b.matches);
+
+      const podium = document.getElementById('topScorerPodium');
+      const first = sortedScorers[0] || { name: '-', goals: 0 };
+      const second = sortedScorers[1] || { name: '-', goals: 0 };
+      const third = sortedScorers[2] || { name: '-', goals: 0 };
+
+      podium.innerHTML = `
+        <div class="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 text-center flex flex-col justify-end esport-card">
+          <div class="text-xl mb-1">🥈</div>
+          <div class="text-xs font-extrabold text-slate-800 truncate" title="${second.name}">${second.name}</div>
+          <div class="text-sm font-black text-slate-600 mt-1">${second.goals} <span class="text-[10px] font-bold text-slate-400">Gol</span></div>
+          <span class="text-[9px] font-bold text-slate-400 mt-1 uppercase">2. Sıra</span>
+        </div>
+        <div class="bg-gradient-to-b from-amber-50 to-white border-2 border-amber-400 rounded-2xl p-3.5 text-center flex flex-col justify-end shadow-sm -mt-2 esport-card">
+          <div class="text-2xl mb-1 crown-float">👑</div>
+          <div class="text-xs sm:text-sm font-black text-amber-900 truncate" title="${first.name}">${first.name}</div>
+          <div class="text-lg font-black text-amber-600 mt-1">${first.goals} <span class="text-xs font-bold text-amber-500">Gol</span></div>
+          <span class="text-[9px] font-black text-amber-700 mt-1 uppercase tracking-wider">Gol Kralı</span>
+        </div>
+        <div class="bg-slate-50 border border-slate-200/90 rounded-2xl p-3 text-center flex flex-col justify-end esport-card">
+          <div class="text-xl mb-1">🥉</div>
+          <div class="text-xs font-extrabold text-slate-800 truncate" title="${third.name}">${third.name}</div>
+          <div class="text-sm font-black text-slate-600 mt-1">${third.goals} <span class="text-[10px] font-bold text-slate-400">Gol</span></div>
+          <span class="text-[9px] font-bold text-slate-400 mt-1 uppercase">3. Sıra</span>
+        </div>
+      `;
+
+      const tbody = document.getElementById('topScorersTableBody');
+      tbody.innerHTML = '';
+
+      sortedScorers.forEach((s, idx) => {
+        const avg = s.matches > 0 ? (s.goals / s.matches).toFixed(1) : '0.0';
+        tbody.innerHTML += `
+          <tr class="${idx === 0 ? 'bg-amber-50/40 font-bold' : ''} transition-colors">
+            <td class="py-2.5 px-3 font-mono font-bold ${idx < 3 ? 'text-amber-600' : 'text-slate-400'}">#${idx + 1}</td>
+            <td class="py-2.5 px-3 text-slate-900 font-semibold truncate max-w-[140px]">${s.name}</td>
+            <td class="py-2.5 px-2 text-center text-slate-500 text-[11px]">${s.group}</td>
+            <td class="py-2.5 px-3 text-center text-slate-600 text-[11px]">${avg} maç/gol</td>
+            <td class="py-2.5 px-4 text-right font-black text-sm ${idx === 0 ? 'text-amber-600' : 'text-slate-800'}">${s.goals}</td>
+          </tr>
+        `;
+      });
+    }
+
+    // ----------------------------------------------------
+    // SOHBET & GÜVENLİK LOGU FONKSİYONLARI
+    // ----------------------------------------------------
+    if (chatRef) {
+      chatRef.on("value", (snapshot) => {
+        const data = snapshot.val();
+        chatMessages = [];
+        if (data) {
+          Object.keys(data).forEach(key => {
+            chatMessages.push({ id: key, ...data[key] });
+          });
+        }
+        renderChatMessages();
+      });
+    }
+
+    function toggleChatWindow() {
+      const win = document.getElementById('chatWindow');
+      win.classList.toggle('hidden');
+      if (!win.classList.contains('hidden')) {
+        renderChatMessages();
+        renderChatUI();
+      }
+    }
+
+    function renderChatUI() {
+      const senderInfo = document.getElementById('chatSenderInfo');
+      if (!senderInfo) return;
+      if (isAdmin) {
+        senderInfo.innerHTML = `
+          <span class="flex items-center gap-1 text-iyte font-bold">
+            <i class="fa-solid fa-shield-halved text-[10px]"></i> Yönetici olarak yazıyorsunuz
+          </span>
+        `;
+      } else {
+        senderInfo.innerHTML = `
+          <span class="text-slate-500 font-medium">
+            Gönderen: <b class="text-slate-800">${currentUserName || 'Misafir Oyuncu'}</b>
+          </span>
+          <button onclick="changeChatName()" class="text-iyte hover:underline font-bold text-[10px]">İsim Değiştir</button>
+        `;
+      }
+    }
+
+    function changeChatName() {
+      const newName = prompt("Sohbette görünecek adınızı girin:", currentUserName);
+      if (newName && newName.trim() !== '') {
+        currentUserName = newName.trim();
+        localStorage.setItem('iyte_chat_username', currentUserName);
+        renderChatUI();
+      }
+    }
+
+    window.deleteChatMessage = function(messageId) {
+      if (!isAdmin) {
+        alert("Sadece yönetici mesaj silebilir!");
+        return;
+      }
+      if (confirm("Bu mesajı kalıcı olarak silmek istediğinize emin misiniz?")) {
+        if (chatRef && messageId) {
+          chatRef.child(messageId).remove().catch(err => {
+            console.error("Mesaj silinemedi:", err);
+          });
+        }
+      }
+    };
+
+    function renderChatMessages() {
+      const container = document.getElementById('chatMessages');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (chatMessages.length === 0) {
+        container.innerHTML = `<div class="text-center text-slate-400 text-[11px] py-4">Henüz soru sorulmadı. İlk mesajı siz yazabilirsiniz!</div>`;
+        return;
+      }
+
+      chatMessages.forEach(msg => {
+        const deleteBtnHTML = isAdmin ? `
+          <button onclick="deleteChatMessage('${msg.id}')" title="Mesajı Sil" class="text-rose-400 hover:text-rose-600 transition ml-2 p-0.5">
+            <i class="fa-solid fa-trash-can text-[11px]"></i>
+          </button>
+        ` : '';
+
+        if (msg.isAdmin) {
+          container.innerHTML += `
+            <div class="bg-iyte/10 border border-iyte/30 rounded-2xl p-2.5 shadow-xs transition-all relative">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-extrabold text-iyte flex items-center gap-1 text-[11px]">
+                  <i class="fa-solid fa-crown text-amber-500 text-[9px]"></i> ${msg.sender}
+                </span>
+                <div class="flex items-center">
+                  <span class="text-[9px] text-slate-400 font-mono">${msg.time}</span>
+                  ${deleteBtnHTML}
+                </div>
+              </div>
+              <p class="text-slate-800 text-xs font-medium leading-relaxed">${msg.text}</p>
+            </div>
+          `;
+        } else {
+          container.innerHTML += `
+            <div class="bg-white border border-slate-200 rounded-2xl p-2.5 shadow-xs transition-all relative">
+              <div class="flex items-center justify-between mb-1">
+                <span class="font-bold text-slate-800 text-[11px]">${msg.sender}</span>
+                <div class="flex items-center">
+                  <span class="text-[9px] text-slate-400 font-mono">${msg.time}</span>
+                  ${deleteBtnHTML}
+                </div>
+              </div>
+              <p class="text-slate-700 text-xs leading-relaxed">${msg.text}</p>
+            </div>
+          `;
+        }
+      });
+
+      container.scrollTop = container.scrollHeight;
+    }
+
+    async function handleSendChatMessage(e) {
+      e.preventDefault();
+      const input = document.getElementById('chatInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      if (!isAdmin && !currentUserName) {
+        const name = prompt("Lütfen sohbette görünecek adınızı girin:");
+        if (!name || name.trim() === '') return;
+        currentUserName = name.trim();
+        localStorage.setItem('iyte_chat_username', currentUserName);
+        renderChatUI();
+      }
+
+      const now = new Date();
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      const senderName = isAdmin ? "Organizatör (Yönetici)" : currentUserName;
+
+      const msgData = {
+        sender: senderName,
+        text: text,
+        isAdmin: isAdmin,
+        time: timeStr,
+        timestamp: Date.now()
+      };
+
+      if (chatRef) {
+        chatRef.push(msgData);
+      }
+
+      try {
+        let userIp = "Bilinmiyor";
+        try {
+          const res = await fetch('https://api.ipify.org?format=json');
+          if (res.ok) {
+            const data = await res.json();
+            userIp = data.ip || "Bilinmiyor";
+          }
+        } catch (ipErr) {
+          console.warn("IP alınamadı:", ipErr);
+        }
+
+        if (auditLogRef) {
+          auditLogRef.push({
+            ip: userIp,
+            sender: senderName,
+            text: text,
+            isAdmin: isAdmin,
+            userAgent: navigator.userAgent || 'Bilinmiyor',
+            screenResolution: `${window.screen.width}x${window.screen.height}`,
+            timestamp: Date.now(),
+            date: now.toISOString()
+          });
+        }
+      } catch (logErr) {
+        console.warn("Audit log yazılamadı:", logErr);
+      }
+
+      input.value = '';
+    }
+
+    // ----------------------------------------------------
+    // NOKTA ATIŞI GÜNCELLEME METODLARI (SADECE İLGİLİ ALANI YAZAR)
+    // ----------------------------------------------------
+    window.updateR32Player = function(idx, pNum, name) {
+      if (pNum === 1) db.r32[idx].p1 = name; else db.r32[idx].p2 = name;
+      syncPathToCloud(`r32/${idx}`, db.r32[idx]);
+    };
+    window.updateR32Score = function(idx, sNum, score) {
+      if (sNum === 1) db.r32[idx].s1 = score; else db.r32[idx].s2 = score;
+      syncPathToCloud(`r32/${idx}`, db.r32[idx]);
+    };
+    window.updateTreePlayer = function(roundKey, idx, pNum, name) {
+      if (pNum === 1) db.tree[roundKey][idx].p1 = name; else db.tree[roundKey][idx].p2 = name;
+      syncPathToCloud(`tree/${roundKey}/${idx}`, db.tree[roundKey][idx]);
+    };
+    window.updateTreeScore = function(roundKey, idx, sNum, score) {
+      if (sNum === 1) db.tree[roundKey][idx].s1 = score; else db.tree[roundKey][idx].s2 = score;
+      syncPathToCloud(`tree/${roundKey}/${idx}`, db.tree[roundKey][idx]);
+    };
+    window.updateFinalistName = function(pNum, name) {
+      if (pNum === 1) db.finals.p1 = name; else db.finals.p2 = name;
+      syncPathToCloud('finals', db.finals);
+    };
+    window.updateBO3Score = function(idx, sNum, score) {
+      if (sNum === 1) db.finals.bo3[idx].s1 = score; else db.finals.bo3[idx].s2 = score;
+      syncPathToCloud(`finals/bo3/${idx}`, db.finals.bo3[idx]);
+    };
+    window.updateThirdTeam = function(pNum, name) {
+      if (pNum === 1) db.finals.third.p1 = name; else db.finals.third.p2 = name;
+      syncPathToCloud('finals/third', db.finals.third);
+    };
+    window.updateThirdScore = function(sNum, score) {
+      if (sNum === 1) db.finals.third.s1 = score; else db.finals.third.s2 = score;
+      syncPathToCloud('finals/third', db.finals.third);
+    };
+
+    // GRUP İÇİ GÜNCELLEMELERDE SADECE O GRUBU BULUTA GÖNDERİR
+    window.updateScore = function(group, matchId, value, isP1) {
+      const match = db.groups[group].matches.find(m => m.id === matchId);
+      if (match) {
+        if (isP1) match.s1 = value; else match.s2 = value;
+        syncPathToCloud(`groups/${group}`, db.groups[group]);
+      }
+    };
+    window.updatePlayerName = function(group, playerId, newName) {
+      const p = db.groups[group].players.find(x => x.id === playerId);
+      if (p) {
+        p.name = newName;
+        syncPathToCloud(`groups/${group}`, db.groups[group]);
+      }
+    };
+
+    // Sekme Değiştirici
+    window.switchTab = function(tabName) {
+      ['groups', 'best3rd', 'round32', 'finalsTree', 'topScorers'].forEach(t => {
+        const el = document.getElementById(`view-${t}`);
+        if (el) {
+          el.classList.add('hidden');
+          el.classList.remove('tab-content-active');
+        }
+        
+        const deskTab = document.getElementById(`desk-tab-${t}`);
+        if (deskTab) deskTab.className = "px-3.5 py-2.5 text-xs font-bold border-b-2 border-transparent text-slate-500 hover:text-slate-800 transition whitespace-nowrap";
+
+        const mobTab = document.getElementById(`mob-tab-${t}`);
+        if (mobTab) mobTab.className = "flex flex-col items-center gap-0.5 text-slate-400 hover:text-slate-700 transition flex-1";
+      });
+
+      const activeEl = document.getElementById(`view-${tabName}`);
+      if (activeEl) {
+        activeEl.classList.remove('hidden');
+        activeEl.classList.add('tab-content-active');
+      }
+
+      const activeDesk = document.getElementById(`desk-tab-${tabName}`);
+      if (activeDesk) activeDesk.className = "px-3.5 py-2.5 text-xs font-bold border-b-2 border-iyte text-iyte transition whitespace-nowrap";
+
+      const activeMob = document.getElementById(`mob-tab-${tabName}`);
+      if (activeMob) activeMob.className = "flex flex-col items-center gap-0.5 text-iyte transition flex-1 font-bold";
+    };
+
+    function renderAll() {
+      renderFilterBar();
+      renderGroups();
+      renderBest3rd();
+      renderRound32Grid();
+      renderFinalsTreeAndBO3();
+      renderTopScorers();
+      calculateMatchOfTheTournament();
+      renderTournamentProgress();
+    }
+
+    // ----------------------------------------------------
+    // TURNUVA DURUMU: BAŞLAT / BİTİR & PROGRESS BAR
+    // ----------------------------------------------------
+    const TOURNAMENT_STAGES = [
+      { key: 'not_started', label: 'Başlamadı', icon: 'fa-hourglass-half' },
+      { key: 'ongoing', label: 'Devam Ediyor', icon: 'fa-futbol' },
+      { key: 'finished', label: 'Tamamlandı', icon: 'fa-trophy' }
+    ];
+
+    window.startTournament = function() {
+      if (!isAdmin) return;
+      if (!confirm("Turnuvayı başlatmak istediğinize emin misiniz?")) return;
+      db.tournamentStatus = 'ongoing';
+      syncPathToCloud('tournamentStatus', db.tournamentStatus);
+    };
+
+    window.endTournament = function() {
+      if (!isAdmin) return;
+      if (!confirm("Turnuvayı bitirmek istediğinize emin misiniz?")) return;
+      db.tournamentStatus = 'finished';
+      syncPathToCloud('tournamentStatus', db.tournamentStatus);
+      triggerChampionConfetti();
+    };
+
+    function renderTournamentProgress() {
+      const bar = document.getElementById('tournamentProgressBar');
+      if (!bar) return;
+
+      const status = db.tournamentStatus || 'not_started';
+      const currentIdx = TOURNAMENT_STAGES.findIndex(s => s.key === status);
+
+      bar.innerHTML = TOURNAMENT_STAGES.map((stage, idx) => {
+        const isDone = idx < currentIdx;
+        const isActive = idx === currentIdx;
+        const circleClass = isActive
+          ? 'bg-white text-iyte border-white shadow-xs'
+          : isDone
+            ? 'bg-emerald-400 text-white border-emerald-300'
+            : 'bg-white/10 text-white/60 border-white/30';
+        const labelClass = isActive ? 'text-white font-extrabold' : isDone ? 'text-emerald-200 font-bold' : 'text-white/50 font-semibold';
+        const connectorClass = idx < currentIdx ? 'bg-emerald-400' : 'bg-white/20';
+
+        const circle = `
+          <div class="flex flex-col items-center gap-1 shrink-0">
+            <div class="w-7 h-7 rounded-full border-2 flex items-center justify-center text-[11px] transition-colors ${circleClass}">
+              <i class="fa-solid ${isDone ? 'fa-check' : stage.icon} text-[10px]"></i>
+            </div>
+            <span class="text-[9px] sm:text-[10px] tracking-tight ${labelClass}">${stage.label}</span>
+          </div>
+        `;
+
+        if (idx === TOURNAMENT_STAGES.length - 1) return circle;
+
+        const connector = `<div class="flex-1 h-0.5 mt-[-14px] mx-1 rounded-full transition-colors ${connectorClass}"></div>`;
+        return circle + connector;
+      }).join('');
+
+      const startBtn = document.getElementById('startTournamentBtn');
+      const endBtn = document.getElementById('endTournamentBtn');
+      if (startBtn) {
+        const showStart = isAdmin && status !== 'ongoing';
+        startBtn.classList.toggle('hidden', !showStart);
+        startBtn.classList.toggle('flex', showStart);
+        startBtn.querySelector('span').innerText = status === 'finished' ? 'Turnuvayı Yeniden Başlat' : 'Turnuvayı Başlat';
+      }
+      if (endBtn) {
+        const showEnd = isAdmin && status === 'ongoing';
+        endBtn.classList.toggle('hidden', !showEnd);
+        endBtn.classList.toggle('flex', showEnd);
+      }
+    }
+
+    renderAll();
+    renderChatUI();
