@@ -1561,6 +1561,291 @@
       if (activeMob) activeMob.className = "flex flex-col items-center gap-0.5 text-iyte transition flex-1 font-bold";
     };
 
+
+    // ----------------------------------------------------
+    // GRUP KURASI (3 VE 4 KİŞİLİK GRUPLAR, POT DENGELİ)
+    // ----------------------------------------------------
+    const DRAW_STORAGE_KEY = 'iyte_fc27_draw_pots';
+    const DEFAULT_DRAW_POTS = [
+      ['Efe Yiğit', 'Doruk Baran', 'Ata Erkin Koçak', 'Berkay Bozlar'],
+      ['Ahmet Baran', 'Semih Nail Teker', 'Gökmen Akman', 'Mert Recep', 'Burak duran', 'Ahmet ilik', 'Atilla Yüksel', 'Kerem Mert Ekiz', 'Batuhan Köşker', 'Ünal yılmazay', 'Eren Erdem', 'Ege Acar', 'Hasan Akın akkoç', 'Hasan karadut', 'Salih yiğit Tavşanlı', 'Altan şahin'],
+      ['Bekir Kaan Fettahlıoğlu', 'Can Hamurcu', 'Onur Yavuz', 'Haktan Kartal', 'Tuna mercanoğlu', 'Berkay Orkun Yörükoğlu', 'Hasan Hüseyin sağır', 'Hasan Utku Uras', 'Çağatay Akdemir', 'Yiğit uluganer', 'Yunus tuğberk bolat', 'Toprak topuz', 'Emrullah altun', 'Naim Enes özgür', 'Ahmet Yiğit Bingöl', 'Behçet Emre Yıldırım'],
+      ['Deniz Keskin', 'Ali Efe Polat', 'Ahmet bilgekaan kütük', 'Kıvanç Alp ay']
+    ];
+    let drawState = null;
+
+    function shuffleArray(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function getDrawPotsFromInputs() {
+      return [1, 2, 3, 4].map(i =>
+        document.getElementById(`drawPot${i}`).value.split('\n').map(x => x.trim()).filter(Boolean)
+      );
+    }
+
+    // Kurayı hesaplar: 12 grup, f tane 4'lü, geri kalanı 3'lü. Her pottan oyuncular gruplara
+    // eşit dağıtılır, ekstra kişiler 4 kişilik gruplara ve güç dengesine göre yerleştirilir.
+    function computeDraw(pots) {
+      const letters = [...GROUP_LETTERS];
+      const n = pots.reduce((sum, p) => sum + p.length, 0);
+      const f = n - 36;
+      const base = pots.map(p => Math.floor(p.length / 12));
+      const extras = pots.map(p => p.length % 12);
+      const baseSum = base.reduce((a, b) => a + b, 0);
+
+      let best = null;
+      for (let t = 0; t < 8000; t++) {
+        const order = shuffleArray(letters);
+        const size = {};
+        order.forEach((l, i) => { size[l] = i < f ? 4 : 3; });
+        const need = {};
+        const cnt = {};
+        letters.forEach(l => { need[l] = size[l] - baseSum; cnt[l] = base.slice(); });
+
+        let ok = true;
+        for (let p = 0; p < pots.length; p++) {
+          const cand = shuffleArray(letters).filter(l => need[l] > 0).sort((a, b) => need[b] - need[a]);
+          if (cand.length < extras[p]) { ok = false; break; }
+          cand.slice(0, extras[p]).forEach(l => { cnt[l][p]++; need[l]--; });
+        }
+        if (!ok || letters.some(l => need[l] !== 0)) continue;
+
+        // Skor: grupların ortalama pot seviyesi birbirine ne kadar yakın (düşük = daha dengeli)
+        const avgs = letters.map(l => cnt[l].reduce((sum, c, p) => sum + c * (p + 1), 0) / size[l]);
+        const mean = avgs.reduce((a, b) => a + b, 0) / avgs.length;
+        const score = avgs.reduce((sum, a) => sum + (a - mean) ** 2, 0);
+        if (!best || score < best.score) best = { score, size, cnt };
+      }
+      if (!best) throw new Error('Dağılım üretilemedi, pot sayılarını kontrol edin.');
+
+      const members = {};
+      letters.forEach(l => { members[l] = []; });
+      const steps = [];
+      pots.forEach((pot, p) => {
+        const slots = [];
+        letters.forEach(l => { for (let k = 0; k < best.cnt[l][p]; k++) slots.push(l); });
+        const slotOrder = shuffleArray(slots);
+        shuffleArray(pot).forEach((name, i) => steps.push({ name, pot: p + 1, group: slotOrder[i] }));
+      });
+      steps.forEach(st => members[st.group].push({ name: st.name, pot: st.pot }));
+      return { size: best.size, members, steps };
+    }
+
+    function buildGroupFromNames(letter, names) {
+      const players = names.map((name, i) => ({ id: `${letter}${i + 1}`, name }));
+      const template = names.length === 3
+        ? [['m1', 1, 2], ['m3', 1, 3], ['m6', 2, 3]]
+        : [['m1', 1, 2], ['m2', 3, 4], ['m3', 1, 3], ['m4', 2, 4], ['m5', 1, 4], ['m6', 2, 3]];
+      const matches = template.map(([k, a, b]) => ({ id: `${letter}_${k}`, p1: `${letter}${a}`, p2: `${letter}${b}`, s1: '', s2: '' }));
+      return { players, matches };
+    }
+
+    function showDrawView(view) {
+      document.getElementById('drawSetupView').classList.toggle('hidden', view !== 'setup');
+      document.getElementById('drawRunView').classList.toggle('hidden', view !== 'run');
+    }
+
+    function clearDrawTimers() {
+      if (drawState && drawState.timers) drawState.timers.forEach(t => { clearTimeout(t); clearInterval(t); });
+      if (drawState) drawState.timers = [];
+    }
+
+    window.openDrawModal = function() {
+      if (!isAdmin) return;
+      let saved = null;
+      try { saved = JSON.parse(localStorage.getItem(DRAW_STORAGE_KEY)); } catch (e) {}
+      const pots = Array.isArray(saved) && saved.length === 4 ? saved : DEFAULT_DRAW_POTS;
+      pots.forEach((p, i) => { document.getElementById(`drawPot${i + 1}`).value = p.join('\n'); });
+      showDrawView('setup');
+      updateDrawSummary();
+      document.getElementById('drawModal').classList.remove('hidden');
+    };
+
+    window.closeDrawModal = function() {
+      clearDrawTimers();
+      drawState = null;
+      document.getElementById('drawModal').classList.add('hidden');
+    };
+
+    window.updateDrawSummary = function() {
+      const pots = getDrawPotsFromInputs();
+      pots.forEach((p, i) => { document.getElementById(`drawPotCount${i + 1}`).innerText = `${p.length} kişi`; });
+      const n = pots.reduce((sum, p) => sum + p.length, 0);
+      const box = document.getElementById('drawSummary');
+      const valid = n >= 36 && n <= 48;
+
+      const seen = new Set();
+      const dups = new Set();
+      pots.flat().forEach(name => {
+        const key = name.toLocaleLowerCase('tr');
+        if (seen.has(key)) dups.add(name); else seen.add(key);
+      });
+
+      let html;
+      if (valid) {
+        const f = n - 36;
+        html = `Toplam <b>${n}</b> oyuncu → <b>${f}</b> grup 4 kişilik, <b>${12 - f}</b> grup 3 kişilik olacak.`;
+        box.className = 'mt-3 text-xs font-semibold rounded-xl px-3 py-2 bg-emerald-50 border border-emerald-200 text-emerald-800';
+      } else {
+        html = `Toplam <b>${n}</b> oyuncu var. 12 grup için 36 ile 48 arası oyuncu gerekir (3 veya 4 kişilik gruplar).`;
+        box.className = 'mt-3 text-xs font-semibold rounded-xl px-3 py-2 bg-rose-50 border border-rose-200 text-rose-800';
+      }
+      if (dups.size) html += `<br><span class="text-amber-700">⚠️ Aynı isim birden fazla girilmiş: ${[...dups].join(', ')}</span>`;
+      box.innerHTML = html;
+
+      document.getElementById('drawStartBtn').disabled = !valid;
+      document.getElementById('drawQuickBtn').disabled = !valid;
+      return valid;
+    };
+
+    function renderDrawGrid(highlightGroup) {
+      const st = drawState;
+      document.getElementById('drawGroupsGrid').innerHTML = GROUP_LETTERS.map(l => {
+        const size = st.result.size[l];
+        const got = st.revealed[l];
+        const slots = [];
+        for (let i = 0; i < size; i++) {
+          const m = got[i];
+          slots.push(m
+            ? `<div class="flex items-center justify-between gap-1 text-[11px] font-bold text-slate-800 bg-white rounded-lg px-2 py-1 border border-slate-200 ${highlightGroup === l && i === got.length - 1 ? 'draw-pop border-amber-400' : ''}"><span class="truncate">${m.name}</span><span class="text-[9px] font-extrabold text-slate-400 shrink-0">P${m.pot}</span></div>`
+            : `<div class="text-[11px] text-slate-300 bg-slate-50 rounded-lg px-2 py-1 border border-dashed border-slate-200">—</div>`);
+        }
+        return `
+          <div class="rounded-2xl border ${highlightGroup === l ? 'border-amber-400 bg-amber-50/60' : 'border-slate-200 bg-slate-50'} p-2 transition">
+            <div class="flex items-center justify-between mb-1.5 px-0.5">
+              <span class="text-xs font-black text-slate-900">Grup ${l}</span>
+              <span class="text-[9px] font-bold text-slate-400">${size} kişilik</span>
+            </div>
+            <div class="space-y-1">${slots.join('')}</div>
+          </div>`;
+      }).join('');
+    }
+
+    function revealDrawStep(step) {
+      drawState.revealed[step.group].push({ name: step.name, pot: step.pot });
+      drawState.count++;
+    }
+
+    function finishDraw() {
+      clearDrawTimers();
+      renderDrawGrid(null);
+      document.getElementById('drawStage').innerHTML = `
+        <div class="text-2xl">✅</div>
+        <div class="text-base font-extrabold">Kura tamamlandı!</div>
+        <div class="text-xs text-white/80 font-medium">Dağılımı kontrol et, uygunsa "Gruplara Uygula"ya bas.</div>`;
+      document.getElementById('drawSkipBtn').classList.add('hidden');
+      ['drawApplyBtn', 'drawRedoBtn'].forEach(id => {
+        const el = document.getElementById(id);
+        el.classList.remove('hidden');
+        el.classList.add('flex');
+      });
+      triggerChampionConfetti();
+    }
+
+    function playDrawStep() {
+      const st = drawState;
+      if (!st) return;
+      if (st.idx >= st.result.steps.length) { finishDraw(); return; }
+      const step = st.result.steps[st.idx];
+      const stage = document.getElementById('drawStage');
+
+      const renderStage = (letterText, settled) => {
+        stage.innerHTML = `
+          <div class="text-[10px] font-extrabold tracking-wider bg-white/15 px-2.5 py-0.5 rounded-full">POT ${step.pot} • ${st.idx + 1}/${st.result.steps.length}</div>
+          <div class="text-lg sm:text-2xl font-black">${step.name}</div>
+          <div class="flex items-center gap-2 mt-1">
+            <span class="text-xs font-bold text-white/70">${settled ? 'Düştüğü grup:' : 'Grup çekiliyor...'}</span>
+            <span class="${settled ? 'draw-pop bg-amber-400 text-iyte-dark' : 'bg-white/20 text-white'} w-9 h-9 rounded-xl flex items-center justify-center text-lg font-black">${letterText}</span>
+          </div>`;
+      };
+
+      renderStage('?', false);
+      renderDrawGrid(null);
+      const spin = setInterval(() => {
+        renderStage(GROUP_LETTERS[Math.floor(Math.random() * GROUP_LETTERS.length)], false);
+      }, 70);
+      st.timers.push(spin);
+
+      st.timers.push(setTimeout(() => {
+        clearInterval(spin);
+        renderStage(step.group, true);
+        revealDrawStep(step);
+        renderDrawGrid(step.group);
+        st.timers.push(setTimeout(() => { st.idx++; playDrawStep(); }, 800));
+      }, 700));
+    }
+
+    window.startDraw = function(animated) {
+      if (!isAdmin || !updateDrawSummary()) return;
+      const pots = getDrawPotsFromInputs();
+      localStorage.setItem(DRAW_STORAGE_KEY, JSON.stringify(pots));
+
+      let result;
+      try { result = computeDraw(pots); }
+      catch (err) { alert(err.message); return; }
+
+      const revealed = {};
+      GROUP_LETTERS.forEach(l => { revealed[l] = []; });
+      drawState = { result, revealed, idx: 0, count: 0, timers: [] };
+
+      document.getElementById('drawSkipBtn').classList.remove('hidden');
+      ['drawApplyBtn', 'drawRedoBtn'].forEach(id => {
+        const el = document.getElementById(id);
+        el.classList.add('hidden');
+        el.classList.remove('flex');
+      });
+      showDrawView('run');
+
+      if (animated) {
+        playDrawStep();
+      } else {
+        result.steps.forEach(revealDrawStep);
+        finishDraw();
+      }
+    };
+
+    window.skipDrawAnimation = function() {
+      if (!drawState) return;
+      clearDrawTimers();
+      drawState.result.steps.slice(drawState.count).forEach(revealDrawStep);
+      finishDraw();
+    };
+
+    window.redoDraw = function() {
+      clearDrawTimers();
+      drawState = null;
+      showDrawView('setup');
+      updateDrawSummary();
+    };
+
+    window.applyDraw = function() {
+      if (!isAdmin || !drawState) return;
+      if (!confirm('Tüm grupların oyuncu isimleri ve maç skorları sıfırlanıp bu kura sonucuyla değiştirilecek. Emin misiniz?')) return;
+
+      const newGroups = {};
+      GROUP_LETTERS.forEach(l => {
+        newGroups[l] = buildGroupFromNames(l, drawState.result.members[l].map(m => m.name));
+      });
+      db.groups = newGroups;
+      syncPathToCloud('groups', db.groups);
+      closeDrawModal();
+      if (typeof switchTab === 'function') switchTab('groups');
+    };
+
+    function renderDrawButton() {
+      const btn = document.getElementById('drawBtn');
+      if (!btn) return;
+      const show = isAdmin && (db.tournamentStatus || 'not_started') !== 'ongoing';
+      btn.classList.toggle('hidden', !show);
+      btn.classList.toggle('flex', show);
+    }
+
     function renderAll() {
       renderFilterBar();
       renderGroups();
@@ -1570,6 +1855,7 @@
       renderTopScorers();
       calculateMatchOfTheTournament();
       renderTournamentProgress();
+      renderDrawButton();
     }
 
     // ----------------------------------------------------
