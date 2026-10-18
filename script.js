@@ -163,12 +163,14 @@
               if (db.groups[gKey]) {
                 if (cloudData.groups[gKey].players) db.groups[gKey].players = cloudData.groups[gKey].players;
                 if (cloudData.groups[gKey].matches) {
-                  cloudData.groups[gKey].matches.forEach((cm, mIdx) => {
-                    if (db.groups[gKey].matches[mIdx]) {
-                      db.groups[gKey].matches[mIdx].s1 = (cm.s1 !== undefined && cm.s1 !== null) ? cm.s1 : '';
-                      db.groups[gKey].matches[mIdx].s2 = (cm.s2 !== undefined && cm.s2 !== null) ? cm.s2 : '';
-                    }
-                  });
+                  // Maç listesi bulutla birebir eşitlenir (3/4 kişilik grup değişimi için gerekli)
+                  db.groups[gKey].matches = Object.values(cloudData.groups[gKey].matches).map(cm => ({
+                    id: cm.id,
+                    p1: cm.p1,
+                    p2: cm.p2,
+                    s1: (cm.s1 !== undefined && cm.s1 !== null) ? cm.s1 : '',
+                    s2: (cm.s2 !== undefined && cm.s2 !== null) ? cm.s2 : ''
+                  }));
                 }
               }
             });
@@ -229,6 +231,37 @@
 
       Object.values(stats).forEach(s => s.AV = s.AG - s.YG);
       return Object.values(stats).sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+    }
+
+    // EN İYİ ÜÇÜNCÜLER: 4 kişilik gruplarda 3.'nün 4.'ye karşı oynadığı maç sayılmaz,
+    // böylece 3 kişilik gruplarla (2 maç) adil kıyaslanır.
+    function getRankedThirds() {
+      const thirds = [];
+      GROUP_LETTERS.forEach(letter => {
+        const g = db.groups[letter];
+        const standings = calculateStandings(letter);
+        if (!g || standings.length < 3) return;
+
+        const third = standings[2];
+        let st = { group: letter, ...third };
+
+        if (standings.length >= 4) {
+          const fourthId = standings[3].id;
+          let O = 0, AG = 0, YG = 0, P = 0;
+          (g.matches || []).forEach(m => {
+            if (m.p1 !== third.id && m.p2 !== third.id) return;
+            if (m.p1 === fourthId || m.p2 === fourthId) return;
+            if (m.s1 === null || m.s2 === null || m.s1 === '' || m.s2 === '') return;
+            const mine = m.p1 === third.id ? safeInt(m.s1) : safeInt(m.s2);
+            const theirs = m.p1 === third.id ? safeInt(m.s2) : safeInt(m.s1);
+            O++; AG += mine; YG += theirs;
+            P += mine > theirs ? 3 : mine === theirs ? 1 : 0;
+          });
+          st = { ...st, O, AG, YG, AV: AG - YG, P };
+        }
+        thirds.push(st);
+      });
+      return thirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
     }
 
     function getPlayerTournamentStats(playerName) {
@@ -482,15 +515,7 @@
       container.innerHTML = `<div class="py-12 flex flex-col items-center gap-3"><div class="w-7 h-7 border-3 border-amber-400 border-t-transparent rounded-full animate-spin"></div><span class="text-xs text-slate-400 font-bold">En İyi 3.'ler tablosu hazırlanıyor...</span></div>`;
       modal.classList.remove('hidden');
 
-      let allThirds = [];
-      GROUP_LETTERS.forEach(letter => {
-        const standings = calculateStandings(letter);
-        if (standings.length >= 3) {
-          allThirds.push({ group: letter, ...standings[2] });
-        }
-      });
-
-      allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+      const allThirds = getRankedThirds();
 
       const tableRowsHTML = allThirds.map((st, idx) => {
         const qualifies = idx < 8;
@@ -602,12 +627,7 @@
       let text = '';
       if (activeShareType === 'best3rd') {
         text = `🏆 *İYTE FC 27 Dünya Kupası • En İyi 8 Üçüncü Sıralaması*\n\n`;
-        let allThirds = [];
-        GROUP_LETTERS.forEach(letter => {
-          const standings = calculateStandings(letter);
-          if (standings.length >= 3) allThirds.push({ group: letter, ...standings[2] });
-        });
-        allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+        const allThirds = getRankedThirds();
         allThirds.slice(0, 8).forEach((s, idx) => {
           text += `${idx + 1}. [Grup ${s.group}] ${s.name} - ${s.P} Puan (${s.AV} AV)\n`;
         });
@@ -920,6 +940,11 @@
                 </div>
                 
                 <div class="flex items-center gap-1.5">
+                  ${isAdmin ? `
+                    <div class="flex items-center bg-slate-100 rounded-full p-0.5 text-[10px] font-bold" title="Grup kaç kişilik?">
+                      <button onclick="setGroupSize('${letter}', 3)" class="px-2 py-0.5 rounded-full transition ${g.players.length === 3 ? 'bg-iyte text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}">3 Kişi</button>
+                      <button onclick="setGroupSize('${letter}', 4)" class="px-2 py-0.5 rounded-full transition ${g.players.length === 4 ? 'bg-iyte text-white shadow-xs' : 'text-slate-500 hover:text-slate-800'}">4 Kişi</button>
+                    </div>` : ''}
                   <button onclick="openShareGroupModal('${letter}')" title="Puan Durumunu Paylaş" class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 hover:bg-iyte hover:text-white text-slate-600 transition text-[11px] font-bold">
                     <i class="fa-solid fa-share-nodes text-[10px]"></i>
                     <span>Paylaş</span>
@@ -956,15 +981,7 @@
       const tbody = document.getElementById('best3rdTableBody');
       tbody.innerHTML = '';
 
-      let allThirds = [];
-      GROUP_LETTERS.forEach(letter => {
-        const standings = calculateStandings(letter);
-        if (standings.length >= 3) {
-          allThirds.push({ group: letter, ...standings[2] });
-        }
-      });
-
-      allThirds.sort((a, b) => b.P - a.P || b.AV - a.AV || b.AG - a.AG);
+      const allThirds = getRankedThirds();
 
       allThirds.forEach((st, idx) => {
         const qualifies = idx < 8;
@@ -1477,6 +1494,36 @@
         syncPathToCloud(`groups/${group}`, db.groups[group]);
       }
     };
+    // GRUBU 3 VEYA 4 KİŞİLİK YAP (SADECE YÖNETİCİ)
+    window.setGroupSize = function(letter, size) {
+      if (!isAdmin) return;
+      const g = db.groups[letter];
+      if (!g || g.players.length === size) return;
+
+      const fourthId = `${letter}4`;
+      const hasScore = m => (m.s1 !== '' && m.s1 != null) || (m.s2 !== '' && m.s2 != null);
+
+      if (size === 3) {
+        const fourth = g.players.find(p => p.id === fourthId);
+        const renamed = fourth && fourth.name && fourth.name !== `${letter}4 Oyuncusu`;
+        const played = g.matches.some(m => (m.p1 === fourthId || m.p2 === fourthId) && hasScore(m));
+        if ((renamed || played) && !confirm(`Grup ${letter} 3 kişilik yapılacak. 4. oyuncu (${fourth ? fourth.name : fourthId}) ve onun maçları silinecek. Emin misiniz?`)) {
+          renderGroups();
+          return;
+        }
+        g.players = g.players.filter(p => p.id !== fourthId);
+        g.matches = g.matches.filter(m => m.p1 !== fourthId && m.p2 !== fourthId);
+      } else {
+        g.players.push({ id: fourthId, name: `${letter}4 Oyuncusu` });
+        const template = [['m1',1,2],['m2',3,4],['m3',1,3],['m4',2,4],['m5',1,4],['m6',2,3]];
+        g.matches = template.map(([k, a, b]) => {
+          const id = `${letter}_${k}`;
+          return g.matches.find(m => m.id === id) || { id, p1: `${letter}${a}`, p2: `${letter}${b}`, s1: '', s2: '' };
+        });
+      }
+      syncPathToCloud(`groups/${letter}`, g);
+    };
+
     window.updatePlayerName = function(group, playerId, newName) {
       const p = db.groups[group].players.find(x => x.id === playerId);
       if (p) {
